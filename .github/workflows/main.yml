@@ -1,4 +1,4 @@
-name: Build ESP32-S3 Samsung Fridge
+name: Build ESP32-S3-N16R8 Samsung Fridge
 on: [push]
 jobs:
   build:
@@ -15,27 +15,27 @@ jobs:
           platform = espressif32
           board = esp32-s3-devkitc-1
           framework = arduino
-          board_build.flash_size = 4MB
-          board_build.partitions = default.csv
           EOF
           cat << 'EOF' > src/main.cpp
           #include <Arduino.h>
           #include <WiFi.h>
           #include <WebServer.h>
 
-          #define PIN_FAN      7
-          #define PIN_DEFROST  8
-          #define PIN_LIGHT_R  14
-          #define PIN_LIGHT_F  15
-          const int DAMPER_PINS[4] = {38, 37, 36, 35};
-          #define PIN_DISP_TX  12
-          #define PIN_DISP_RX  13
+          // --- SO DO CHAN BO LON ESP32-S3-N16R8 ---
+          const int DAMPER_PINS[4] = {4, 5, 6, 7};
+          #define PIN_DISP_TX  15
+          #define PIN_DISP_RX  16
+          #define PIN_LIGHT_R  17
+          #define PIN_LIGHT_F  18
+          #define PIN_FAN      20
+          #define PIN_DEFROST  21
 
+          // --- CAC CHAN CHO HAN SAU ---
           #define PIN_SENS_COM 1
           #define PIN_SENS_DEF 2
-          #define PIN_SENS_AMB 4
-          #define PIN_DOOR_F   5
-          #define PIN_DOOR_R   6
+          #define PIN_SENS_AMB 3
+          #define PIN_DOOR_F   8
+          #define PIN_DOOR_R   9
           #define PIN_COMP_TX  10
           #define PIN_COMP_RX  11
 
@@ -94,9 +94,9 @@ jobs:
             float tAmb = readNTC(PIN_SENS_AMB, false);
 
             String html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>";
-            html += "<title>Tu Lanh Samsung S3</title><style>body{font-family:sans-serif;background:#111;color:#eee;padding:15px;}";
+            html += "<title>Tu Lanh Samsung N16R8</title><style>body{font-family:sans-serif;background:#111;color:#eee;padding:15px;}";
             html += ".card{background:#222;padding:15px;border-radius:10px;margin-bottom:12px;}button{padding:12px 18px;font-size:16px;margin:5px;border-radius:8px;border:none;background:#0284c7;color:#fff;}</style></head><body>";
-            html += "<h2>SAMSUNG INVERTER PRO</h2>";
+            html += "<h2>SAMSUNG INVERTER N16R8</h2>";
             html += "<div class='card'><b>Nhiet do ngan mat:</b> +" + String(targetTempR) + " &deg;C<br><br>";
             html += "<a href='/temp?v=4'><button>+4 &deg;C</button></a><a href='/temp?v=5'><button>+5 &deg;C</button></a></div>";
             html += "<div class='card'><b>Cam bien:</b><br>";
@@ -105,7 +105,7 @@ jobs:
             html += "Moi truong: " + (tAmb < -90 ? String("Chua han") : String(tAmb, 1) + " &deg;C") + "</div>";
             html += "<div class='card'><b>Test thiet bi:</b><br>";
             html += "<a href='/test?d=open'><button>Mo Damper</button></a><a href='/test?d=close'><button>Dong Damper</button></a><br>";
-            html += "<a href='/test?d=fan'><button>Quat</button></a><a href='/test?d=def'><button>Xa Da</button></a></div>";
+            html += "<a href='/test?d=fan'><button>Quat (20)</button></a><a href='/test?d=def'><button>Xa Da (21)</button></a></div>";
             html += "</body></html>";
             server.send(200, "text/html", html);
           }
@@ -126,6 +126,7 @@ jobs:
 
             WiFi.softAP("Samsung_TuLanh_S3", "12345678");
 
+            // Chop den ngan mat (GPIO 17) 2 lan bao hieu khoi dong xong
             for(int k = 0; k < 2; k++) {
               digitalWrite(PIN_LIGHT_R, 1); delay(300);
               digitalWrite(PIN_LIGHT_R, 0); delay(300);
