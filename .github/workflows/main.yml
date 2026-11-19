@@ -15,6 +15,10 @@ jobs:
           platform = espressif32
           board = esp32-s3-devkitc-1
           framework = arduino
+          board_build.flash_size = 4MB
+          board_build.partitions = default.csv
+          board_build.arduino.memory_type = qio_qspi
+          build_flags = -DBOARD_HAS_PSRAM
           EOF
           cat << 'EOF' > src/main.cpp
           #include <Arduino.h>
@@ -41,16 +45,13 @@ jobs:
 
           WebServer server(80);
 
-          // Trang thai he thong
-          int targetTempR = 4;     // Mac dinh ngan mat +4 do C
+          int targetTempR = 4;
           bool damperOpen = false;
           bool compRunning = false;
           bool defrostMode = false;
-          int errorCode = 0;       // 0: Binh thuong, 2: Loi CB, 4: Loi Quat, 6: Loi Loc
+          int errorCode = 0;
           unsigned long lightTimerR = 0;
-          unsigned long doorOpenStart = 0;
 
-          // Bang 4 buoc quay motor Damper
           const int STEP_SEQ[4][4] = {
             {1, 1, 0, 0},
             {0, 1, 1, 0},
@@ -71,23 +72,20 @@ jobs:
             damperOpen = openCmd;
           }
 
-          // Tinh nhiet do tu cau phan ap 3.6k (NTC 5k @ 25C, Beta 3950)
           float readNTC(int pin, bool isParallel) {
             int adc = analogRead(pin);
-            if (adc < 80 || adc > 4010) return -99.0; // Bao dut/chap cam bien
+            if (adc < 80 || adc > 4010) return -99.0;
             float r_ntc = 3600.0 * ((float)adc / (4095.0 - adc));
-            if (isParallel) r_ntc = r_ntc * 2.0; // Bu gia tri mac song song
+            if (isParallel) r_ntc = r_ntc * 2.0;
             float steinhart = log(r_ntc / 5000.0) / 3950.0 + 1.0 / (25.0 + 273.15);
             return (1.0 / steinhart) - 273.15;
           }
 
-          // Giao tiep bo khien khoang lanh & nhay bao ma loi chuan Samsung
           void updateDisplayBoard() {
             static unsigned long lastTx = 0;
             if (millis() - lastTx < 500) return;
             lastTx = millis();
 
-            // Doc phim bam tu bo khien gui ve (neu co)
             while (Serial1.available()) {
               uint8_t cmd = Serial1.read();
               if (cmd == 0x01 || cmd == 0x11) {
@@ -95,13 +93,10 @@ jobs:
                 if (targetTempR > 7) targetTempR = 1;
               }
             }
-
-            // Gui khung du lieu hien thi muc nhiet (+4C, +5C...) hoac ma loi
             uint8_t packet[4] = {0xAA, (uint8_t)targetTempR, (uint8_t)errorCode, (uint8_t)(0xAA ^ targetTempR ^ errorCode)};
             Serial1.write(packet, 4);
           }
 
-          // Giao dien giam sat & dieu khien tren dien thoai
           void handleRoot() {
             float tCom = readNTC(PIN_SENS_COM, true);
             float tDef = readNTC(PIN_SENS_DEF, false);
@@ -113,7 +108,7 @@ jobs:
             html += "<h2>SAMSUNG INVERTER PRO</h2>";
             html += "<div class='card'><b>Nhiet do cai dat ngan mat:</b> +" + String(targetTempR) + " &deg;C<br><br>";
             html += "<a href='/temp?v=4'><button>+4 &deg;C</button></a><a href='/temp?v=5'><button>+5 &deg;C</button></a></div>";
-            html += "<div class='card'><b>Cam bien (Se hien khi han dây):</b><br>";
+            html += "<div class='card'><b>Cam bien (Se hien khi han day):</b><br>";
             html += "Khoang chung (Da+Mat): " + (tCom < -90 ? String("Chua han") : String(tCom, 1) + " &deg;C") + "<br>";
             html += "Dan lanh (Xa da): " + (tDef < -90 ? String("Chua han") : String(tDef, 1) + " &deg;C") + "<br>";
             html += "Moi truong ban le: " + (tAmb < -90 ? String("Chua han") : String(tAmb, 1) + " &deg;C") + "</div>";
@@ -127,7 +122,7 @@ jobs:
           void setup() {
             pinMode(PIN_FAN, OUTPUT); digitalWrite(PIN_FAN, 0);
             pinMode(PIN_DEFROST, OUTPUT); digitalWrite(PIN_DEFROST, 0);
-            pinMode(PIN_LIGHT_R, OUTPUT); digitalWrite(PIN_LIGHT_R, 1); // Bat sang den ngan mat luc moi cam dien
+            pinMode(PIN_LIGHT_R, OUTPUT); digitalWrite(PIN_LIGHT_R, 1);
             pinMode(PIN_LIGHT_F, OUTPUT); digitalWrite(PIN_LIGHT_F, 0);
             for (int i = 0; i < 4; i++) { pinMode(DAMPER_PINS[i], OUTPUT); digitalWrite(DAMPER_PINS[i], 0); }
 
@@ -136,11 +131,14 @@ jobs:
             pinMode(PIN_COMP_TX, OUTPUT); digitalWrite(PIN_COMP_TX, 0);
             pinMode(PIN_COMP_RX, INPUT_PULLUP);
 
-            // Khoi dong UART1 giao tiep bo khien khoang lanh
             Serial1.begin(9600, SERIAL_8N1, PIN_DISP_RX, PIN_DISP_TX);
 
-            // Phat Wi-Fi cuc bo de dieu khien tren dien thoai
-            WiFi.softAP("Samsung_TuLanh_S3", "12345678");
+            // Khoi dong Wi-Fi AP on dinh cho ESP32-S3 SuperMini
+            WiFi.mode(WIFI_AP);
+            WiFi.setTxPower(WIFI_POWER_15dBm);
+            delay(200);
+            WiFi.softAP("Samsung_TuLanh_S3", "12345678", 6);
+
             server.on("/", handleRoot);
             server.on("/temp", []() {
               if (server.hasArg("v")) targetTempR = server.arg("v").toInt();
@@ -157,7 +155,7 @@ jobs:
             server.begin();
 
             lightTimerR = millis();
-            moveDamper(true); // Khoi dong mo cua gio Damper
+            moveDamper(true);
           }
 
           void loop() {
@@ -167,7 +165,6 @@ jobs:
             bool doorROpen = (digitalRead(PIN_DOOR_R) == LOW);
             bool doorFOpen = (digitalRead(PIN_DOOR_F) == LOW);
 
-            // Hieu ung den ngan mat: Mo cua sang han, dong cua sang them 10 giay roi tu tat
             if (doorROpen) {
               digitalWrite(PIN_LIGHT_R, 1);
               lightTimerR = millis();
@@ -175,15 +172,12 @@ jobs:
               digitalWrite(PIN_LIGHT_R, 0);
             }
 
-            // Den ngan da sang khi mo cua
             digitalWrite(PIN_LIGHT_F, doorFOpen ? 1 : 0);
 
-            // Kiem tra neu da han cam bien thi chay tu dong hoan chinh
             float tCom = readNTC(PIN_SENS_COM, true);
             if (tCom > -90.0) {
               errorCode = 0;
               if (!defrostMode) {
-                // Dieu khien loc & quat theo nhiet do
                 if (tCom > -12.0) {
                   compRunning = true;
                   digitalWrite(PIN_FAN, (doorROpen || doorFOpen) ? 0 : 1);
@@ -191,11 +185,9 @@ jobs:
                   compRunning = false;
                   digitalWrite(PIN_FAN, 0);
                 }
-                // Dieu tiet cua gio Damper theo muc cai dat (+4C / +5C)
                 moveDamper(tCom > (targetTempR - 14.0));
               }
             } else {
-              // Khi chua han cam bien: Bao loi CB (ma 2) de test nhay loi tren bo khien
               errorCode = 2;
             }
           }
