@@ -11,9 +11,10 @@ jobs:
           pip install -U platformio
           mkdir -p src
           printf "[env:esp32s3]\nplatform = espressif32\nboard = esp32-s3-devkitc-1\nframework = arduino\n" > platformio.ini
-          printf "#include <Arduino.h>\nvoid setup(){pinMode(14,OUTPUT);pinMode(15,OUTPUT);pinMode(39,OUTPUT);pinMode(42,OUTPUT);}\nvoid loop(){digitalWrite(14,1);delay(3000);digitalWrite(14,0);delay(1000);digitalWrite(15,1);delay(3000);digitalWrite(15,0);delay(1000);digitalWrite(39,1);delay(5000);digitalWrite(39,0);delay(1000);digitalWrite(42,1);delay(3000);digitalWrite(42,0);delay(2000);}\n" > src/main.cpp
+          printf "#include <Arduino.h>\nvoid setup(){pinMode(14,OUTPUT);pinMode(15,OUTPUT);pinMode(7,OUTPUT);pinMode(8,OUTPUT);digitalWrite(7,0);digitalWrite(8,0);}\nvoid loop(){digitalWrite(14,1);delay(3000);digitalWrite(14,0);delay(1000);digitalWrite(15,1);delay(3000);digitalWrite(15,0);delay(1000);digitalWrite(7,1);delay(5000);digitalWrite(7,0);delay(1000);digitalWrite(8,1);delay(3000);digitalWrite(8,0);delay(2000);}\n" > src/main.cpp
           pio run
       - uses: actions/upload-artifact@v4
         with:
           name: firmware-esp32s3
           path: .pio/build/esp32s3/*.bin
+          
