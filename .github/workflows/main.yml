@@ -17,42 +17,36 @@ jobs:
           framework = arduino
           board_build.flash_size = 4MB
           board_build.partitions = default.csv
-          board_build.arduino.memory_type = qio_qspi
-          build_flags = -DBOARD_HAS_PSRAM
           EOF
           cat << 'EOF' > src/main.cpp
           #include <Arduino.h>
           #include <WiFi.h>
           #include <WebServer.h>
 
-          // --- KHAI BAO CHAN DA HAN ---
           #define PIN_FAN      7
           #define PIN_DEFROST  8
           #define PIN_LIGHT_R  14
           #define PIN_LIGHT_F  15
-          const int DAMPER_PINS[4] = {38, 37, 36, 35};
+          const int DAMPER_PINS = {38, 37, 36, 35};
           #define PIN_DISP_TX  12
           #define PIN_DISP_RX  13
 
-          // --- KHAI BAO CHAN HAN SAU ---
-          #define PIN_SENS_COM 1   // Cam bien Da + Mat song song
-          #define PIN_SENS_DEF 2   // Cam bien Xa da dan lanh
-          #define PIN_SENS_AMB 4   // Cam bien Moi truong ban le
-          #define PIN_DOOR_F   5   // Cong tac cua Da
-          #define PIN_DOOR_R   6   // Cong tac cua Mat
-          #define PIN_COMP_TX  10  // Opto lenh loc Inverter
-          #define PIN_COMP_RX  11  // Opto bao loi loc Inverter
+          #define PIN_SENS_COM 1
+          #define PIN_SENS_DEF 2
+          #define PIN_SENS_AMB 4
+          #define PIN_DOOR_F   5
+          #define PIN_DOOR_R   6
+          #define PIN_COMP_TX  10
+          #define PIN_COMP_RX  11
 
           WebServer server(80);
-
           int targetTempR = 4;
           bool damperOpen = false;
-          bool compRunning = false;
           bool defrostMode = false;
           int errorCode = 0;
           unsigned long lightTimerR = 0;
 
-          const int STEP_SEQ[4][4] = {
+          const int STEP_SEQ = {
             {1, 1, 0, 0},
             {0, 1, 1, 0},
             {0, 0, 1, 1},
@@ -63,9 +57,7 @@ jobs:
             if (damperOpen == openCmd) return;
             for (int step = 0; step < 260; step++) {
               int idx = openCmd ? (step % 4) : (3 - (step % 4));
-              for (int p = 0; p < 4; p++) {
-                digitalWrite(DAMPER_PINS[p], STEP_SEQ[idx][p]);
-              }
+              for (int p = 0; p < 4; p++) digitalWrite(DAMPER_PINS[p], STEP_SEQ[idx][p]);
               delay(4);
             }
             for (int p = 0; p < 4; p++) digitalWrite(DAMPER_PINS[p], 0);
@@ -85,7 +77,6 @@ jobs:
             static unsigned long lastTx = 0;
             if (millis() - lastTx < 500) return;
             lastTx = millis();
-
             while (Serial1.available()) {
               uint8_t cmd = Serial1.read();
               if (cmd == 0x01 || cmd == 0x11) {
@@ -93,7 +84,7 @@ jobs:
                 if (targetTempR > 7) targetTempR = 1;
               }
             }
-            uint8_t packet[4] = {0xAA, (uint8_t)targetTempR, (uint8_t)errorCode, (uint8_t)(0xAA ^ targetTempR ^ errorCode)};
+            uint8_t packet = {0xAA, (uint8_t)targetTempR, (uint8_t)errorCode, (uint8_t)(0xAA ^ targetTempR ^ errorCode)};
             Serial1.write(packet, 4);
           }
 
@@ -103,18 +94,18 @@ jobs:
             float tAmb = readNTC(PIN_SENS_AMB, false);
 
             String html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>";
-            html += "<title>Tu Lanh Samsung ESP32-S3</title><style>body{font-family:sans-serif;background:#111;color:#eee;padding:15px;}";
+            html += "<title>Tu Lanh Samsung S3</title><style>body{font-family:sans-serif;background:#111;color:#eee;padding:15px;}";
             html += ".card{background:#222;padding:15px;border-radius:10px;margin-bottom:12px;}button{padding:12px 18px;font-size:16px;margin:5px;border-radius:8px;border:none;background:#0284c7;color:#fff;}</style></head><body>";
             html += "<h2>SAMSUNG INVERTER PRO</h2>";
-            html += "<div class='card'><b>Nhiet do cai dat ngan mat:</b> +" + String(targetTempR) + " &deg;C<br><br>";
+            html += "<div class='card'><b>Nhiet do ngan mat:</b> +" + String(targetTempR) + " &deg;C<br><br>";
             html += "<a href='/temp?v=4'><button>+4 &deg;C</button></a><a href='/temp?v=5'><button>+5 &deg;C</button></a></div>";
-            html += "<div class='card'><b>Cam bien (Se hien khi han day):</b><br>";
-            html += "Khoang chung (Da+Mat): " + (tCom < -90 ? String("Chua han") : String(tCom, 1) + " &deg;C") + "<br>";
-            html += "Dan lanh (Xa da): " + (tDef < -90 ? String("Chua han") : String(tDef, 1) + " &deg;C") + "<br>";
-            html += "Moi truong ban le: " + (tAmb < -90 ? String("Chua han") : String(tAmb, 1) + " &deg;C") + "</div>";
-            html += "<div class='card'><b>Test nhanh thiet bi da han:</b><br>";
+            html += "<div class='card'><b>Cam bien:</b><br>";
+            html += "Da+Mat: " + (tCom < -90 ? String("Chua han") : String(tCom, 1) + " &deg;C") + "<br>";
+            html += "Dan lanh: " + (tDef < -90 ? String("Chua han") : String(tDef, 1) + " &deg;C") + "<br>";
+            html += "Moi truong: " + (tAmb < -90 ? String("Chua han") : String(tAmb, 1) + " &deg;C") + "</div>";
+            html += "<div class='card'><b>Test thiet bi:</b><br>";
             html += "<a href='/test?d=open'><button>Mo Damper</button></a><a href='/test?d=close'><button>Dong Damper</button></a><br>";
-            html += "<a href='/test?d=fan'><button>Bat/Tat Quat</button></a><a href='/test?d=def'><button>Bat/Tat Xa Da</button></a></div>";
+            html += "<a href='/test?d=fan'><button>Quat</button></a><a href='/test?d=def'><button>Xa Da</button></a></div>";
             html += "</body></html>";
             server.send(200, "text/html", html);
           }
@@ -122,7 +113,7 @@ jobs:
           void setup() {
             pinMode(PIN_FAN, OUTPUT); digitalWrite(PIN_FAN, 0);
             pinMode(PIN_DEFROST, OUTPUT); digitalWrite(PIN_DEFROST, 0);
-            pinMode(PIN_LIGHT_R, OUTPUT); digitalWrite(PIN_LIGHT_R, 1);
+            pinMode(PIN_LIGHT_R, OUTPUT); digitalWrite(PIN_LIGHT_R, 0);
             pinMode(PIN_LIGHT_F, OUTPUT); digitalWrite(PIN_LIGHT_F, 0);
             for (int i = 0; i < 4; i++) { pinMode(DAMPER_PINS[i], OUTPUT); digitalWrite(DAMPER_PINS[i], 0); }
 
@@ -133,11 +124,15 @@ jobs:
 
             Serial1.begin(9600, SERIAL_8N1, PIN_DISP_RX, PIN_DISP_TX);
 
-            // Khoi dong Wi-Fi AP on dinh cho ESP32-S3 SuperMini
-            WiFi.mode(WIFI_AP);
-            WiFi.setTxPower(WIFI_POWER_15dBm);
-            delay(200);
-            WiFi.softAP("Samsung_TuLanh_S3", "12345678", 6);
+            // Bat Wi-Fi AP don gian nhat (da tat PSRAM)
+            WiFi.softAP("Samsung_TuLanh_S3", "12345678");
+
+            // Chop den ngan mat 2 lan bao hieu chip da chay & bat Wi-Fi xong
+            for(int k = 0; k < 2; k++) {
+              digitalWrite(PIN_LIGHT_R, 1); delay(300);
+              digitalWrite(PIN_LIGHT_R, 0); delay(300);
+            }
+            digitalWrite(PIN_LIGHT_R, 1);
 
             server.on("/", handleRoot);
             server.on("/temp", []() {
@@ -171,7 +166,6 @@ jobs:
             } else if (millis() - lightTimerR > 10000) {
               digitalWrite(PIN_LIGHT_R, 0);
             }
-
             digitalWrite(PIN_LIGHT_F, doorFOpen ? 1 : 0);
 
             float tCom = readNTC(PIN_SENS_COM, true);
@@ -179,10 +173,8 @@ jobs:
               errorCode = 0;
               if (!defrostMode) {
                 if (tCom > -12.0) {
-                  compRunning = true;
                   digitalWrite(PIN_FAN, (doorROpen || doorFOpen) ? 0 : 1);
                 } else if (tCom < -16.0) {
-                  compRunning = false;
                   digitalWrite(PIN_FAN, 0);
                 }
                 moveDamper(tCom > (targetTempR - 14.0));
