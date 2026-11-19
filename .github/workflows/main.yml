@@ -27,7 +27,7 @@ jobs:
           #define PIN_DEFROST  8
           #define PIN_LIGHT_R  14
           #define PIN_LIGHT_F  15
-          const int DAMPER_PINS = {38, 37, 36, 35};
+          const int DAMPER_PINS[4] = {38, 37, 36, 35};
           #define PIN_DISP_TX  12
           #define PIN_DISP_RX  13
 
@@ -46,7 +46,7 @@ jobs:
           int errorCode = 0;
           unsigned long lightTimerR = 0;
 
-          const int STEP_SEQ = {
+          const int STEP_SEQ[4][4] = {
             {1, 1, 0, 0},
             {0, 1, 1, 0},
             {0, 0, 1, 1},
@@ -84,7 +84,7 @@ jobs:
                 if (targetTempR > 7) targetTempR = 1;
               }
             }
-            uint8_t packet = {0xAA, (uint8_t)targetTempR, (uint8_t)errorCode, (uint8_t)(0xAA ^ targetTempR ^ errorCode)};
+            uint8_t packet[4] = {0xAA, (uint8_t)targetTempR, (uint8_t)errorCode, (uint8_t)(0xAA ^ targetTempR ^ errorCode)};
             Serial1.write(packet, 4);
           }
 
@@ -124,10 +124,8 @@ jobs:
 
             Serial1.begin(9600, SERIAL_8N1, PIN_DISP_RX, PIN_DISP_TX);
 
-            // Bat Wi-Fi AP don gian nhat (da tat PSRAM)
             WiFi.softAP("Samsung_TuLanh_S3", "12345678");
 
-            // Chop den ngan mat 2 lan bao hieu chip da chay & bat Wi-Fi xong
             for(int k = 0; k < 2; k++) {
               digitalWrite(PIN_LIGHT_R, 1); delay(300);
               digitalWrite(PIN_LIGHT_R, 0); delay(300);
