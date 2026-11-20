@@ -1,4 +1,4 @@
-name: Build ESP32-S3 Samsung
+name: Build ESP32-S3 Samsung WakeUp
 on: [push]
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -22,10 +22,9 @@ jobs:
 
           int dmP0 = 4, dmP1 = 5, dmP2 = 6, dmP3 = 7;
           int dmMode = 1;
-          bool dispSwap = false;
-          long dispBaud = 9600;
-          int tempR = 4;
-          String rxHex = "Trong";
+          int uartMode = 1; // 1: 1200 8E1, 2: 2400 8E1, 3: 1200 8N1, 4: 2400 8N1
+          bool swapPin = false;
+          String rxHex = "Chua co";
           WebServer server(80);
 
           void setDm(int m) {
@@ -52,19 +51,31 @@ jobs:
 
           void initUart() {
             Serial1.end(); delay(50);
-            Serial1.begin(dispBaud, SERIAL_8N1, dispSwap ? 15 : 16, dispSwap ? 16 : 15);
+            int rx = swapPin ? 15 : 16;
+            int tx = swapPin ? 16 : 15;
+            if (uartMode == 1) Serial1.begin(1200, SERIAL_8E1, rx, tx);
+            if (uartMode == 2) Serial1.begin(2400, SERIAL_8E1, rx, tx);
+            if (uartMode == 3) Serial1.begin(1200, SERIAL_8N1, rx, tx);
+            if (uartMode == 4) Serial1.begin(2400, SERIAL_8N1, rx, tx);
+          }
+
+          void sendSamsungWakeup() {
+            // Khung truyen 10-byte chuan Samsung Display DA92
+            uint8_t frame = {0x55, 0xAA, 0x00, 0x04, 0x12, 0x00, 0x00, 0x00, 0x00, 0x16};
+            Serial1.write(frame, 10);
           }
 
           void handleRoot() {
             String h = "<html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>";
-            h += "<style>body{background:#111;color:#fff;font-family:sans-serif;padding:15px}button{padding:12px;margin:4px;font-size:15px;background:#0284c7;color:#fff;border:none;border-radius:6px}</style></head><body>";
-            h += "<h3>1. DAMPER (Pha " + String(dmMode) + ")</h3>";
+            h += "<style>body{background:#111;color:#fff;font-family:sans-serif;padding:12px}button{padding:11px;margin:4px;font-size:14px;background:#0284c7;color:#fff;border:none;border-radius:6px}</style></head><body>";
+            h += "<h3>1. BO KHIEN DA92 (Che do " + String(uartMode) + " | " + (swapPin ? "16/15" : "15/16") + ")</h3>";
+            h += "Nhan ve: <b>" + rxHex + "</b><br>";
+            h += "<a href='/u?m=1'><button>1200 8E1</button></a><a href='/u?m=2'><button>2400 8E1</button></a>";
+            h += "<a href='/u?m=3'><button>1200 8N1</button></a><a href='/u?m=4'><button>2400 8N1</button></a><br>";
+            h += "<a href='/u?s=1'><button>Dao TX/RX</button></a><a href='/t?c=wake'><button>Gui Lenh Sang Den</button></a>";
+            h += "<h3>2. DAMPER (Pha " + String(dmMode) + ")</h3>";
             h += "<a href='/dm?m=1'><button>Pha 1</button></a><a href='/dm?m=2'><button>Pha 2</button></a><a href='/dm?m=3'><button>Pha 3</button></a><br>";
             h += "<a href='/t?c=open'><button>MO GIO</button></a><a href='/t?c=close'><button>DONG GIO</button></a>";
-            h += "<h3>2. BO KHIEN (" + String(dispSwap ? "16/15" : "15/16") + " - " + String(dispBaud) + ")</h3>";
-            h += "Nhan ve: <b>" + rxHex + "</b><br>";
-            h += "<a href='/u?s=1'><button>Dao TX/RX</button></a><a href='/u?b=2400'><button>2400</button></a><a href='/u?b=4800'><button>4800</button></a><a href='/u?b=9600'><button>9600</button></a><br>";
-            h += "<a href='/t?c=beep'><button>Test Bo Khien</button></a>";
             h += "<h3>3. TAI KHAC</h3>";
             h += "<a href='/t?c=fan'><button>Quat 20</button></a><a href='/t?c=def'><button>Xa Da 21</button></a><a href='/t?c=lr'><button>Den Mat 17</button></a><a href='/t?c=lf'><button>Den Da 18</button></a>";
             h += "</body></html>";
@@ -80,19 +91,19 @@ jobs:
             server.on("/", handleRoot);
             server.on("/dm", [](){ setDm(server.arg("m").toInt()); server.sendHeader("Location","/"); server.send(303); });
             server.on("/u", [](){
-              if(server.hasArg("s")) dispSwap = !dispSwap;
-              if(server.hasArg("b")) dispBaud = server.arg("b").toInt();
+              if(server.hasArg("m")) uartMode = server.arg("m").toInt();
+              if(server.hasArg("s")) swapPin = !swapPin;
               initUart(); server.sendHeader("Location","/"); server.send(303);
             });
             server.on("/t", [](){
               String c = server.arg("c");
+              if(c=="wake") sendSamsungWakeup();
               if(c=="open") runDm(true);
               if(c=="close") runDm(false);
               if(c=="fan") digitalWrite(20, !digitalRead(20));
               if(c=="def") digitalWrite(21, !digitalRead(21));
               if(c=="lr") digitalWrite(17, !digitalRead(17));
               if(c=="lf") digitalWrite(18, !digitalRead(18));
-              if(c=="beep") { uint8_t p[4]={0xAA, 0x04, 0x00, 0xAE}; Serial1.write(p, 4); }
               server.sendHeader("Location","/"); server.send(303);
             });
             server.begin();
@@ -100,6 +111,8 @@ jobs:
 
           void loop() {
             server.handleClient();
+            static unsigned long t = 0;
+            if (millis() - t > 400) { t = millis(); sendSamsungWakeup(); }
             if (Serial1.available()) {
               rxHex = "";
               while (Serial1.available()) rxHex += String(Serial1.read(), HEX) + " ";
