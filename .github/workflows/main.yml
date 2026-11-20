@@ -21,7 +21,7 @@ jobs:
           #include <WebServer.h>
 
           // --- SO DO CHAN BO LON ESP32-S3-N16R8 ---
-          int damperPins = {4, 5, 6, 7};
+          int dmP0 = 4, dmP1 = 5, dmP2 = 6, dmP3 = 7;
           #define PIN_LIGHT_R  17
           #define PIN_LIGHT_F  18
           #define PIN_FAN      20
@@ -46,33 +46,31 @@ jobs:
           unsigned long lightTimerR = 0;
           String lastRxHex = "Chua nhan duoc du lieu";
 
-          const int STEP_SEQ = {
-            {1, 1, 0, 0},
-            {0, 1, 1, 0},
-            {0, 0, 1, 1},
-            {1, 0, 0, 1}
-          };
-
           void applyDamperMode(int mode) {
             damperMode = mode;
-            if (mode == 1) { damperPins=4; damperPins=5; damperPins=6; damperPins=7; }
-            if (mode == 2) { damperPins=4; damperPins=6; damperPins=5; damperPins=7; }
-            if (mode == 3) { damperPins=4; damperPins=6; damperPins=7; damperPins=5; }
-            for (int i = 0; i < 4; i++) {
-              pinMode(damperPins[i], OUTPUT);
-              digitalWrite(damperPins[i], 0);
-            }
+            if (mode == 1) { dmP0 = 4; dmP1 = 5; dmP2 = 6; dmP3 = 7; }
+            if (mode == 2) { dmP0 = 4; dmP1 = 6; dmP2 = 5; dmP3 = 7; }
+            if (mode == 3) { dmP0 = 4; dmP1 = 6; dmP2 = 7; dmP3 = 5; }
+            pinMode(dmP0, OUTPUT); digitalWrite(dmP0, 0);
+            pinMode(dmP1, OUTPUT); digitalWrite(dmP1, 0);
+            pinMode(dmP2, OUTPUT); digitalWrite(dmP2, 0);
+            pinMode(dmP3, OUTPUT); digitalWrite(dmP3, 0);
+          }
+
+          void stepWrite(int idx) {
+            if (idx == 0) { digitalWrite(dmP0, 1); digitalWrite(dmP1, 1); digitalWrite(dmP2, 0); digitalWrite(dmP3, 0); }
+            if (idx == 1) { digitalWrite(dmP0, 0); digitalWrite(dmP1, 1); digitalWrite(dmP2, 1); digitalWrite(dmP3, 0); }
+            if (idx == 2) { digitalWrite(dmP0, 0); digitalWrite(dmP1, 0); digitalWrite(dmP2, 1); digitalWrite(dmP3, 1); }
+            if (idx == 3) { digitalWrite(dmP0, 1); digitalWrite(dmP1, 0); digitalWrite(dmP2, 0); digitalWrite(dmP3, 1); }
           }
 
           void runDamper(bool openCmd) {
             for (int step = 0; step < 500; step++) {
               int idx = openCmd ? (step % 4) : (3 - (step % 4));
-              for (int p = 0; p < 4; p++) {
-                digitalWrite(damperPins[p], STEP_SEQ[idx][p]);
-              }
+              stepWrite(idx);
               delay(8);
             }
-            for (int p = 0; p < 4; p++) digitalWrite(damperPins[p], 0);
+            digitalWrite(dmP0, 0); digitalWrite(dmP1, 0); digitalWrite(dmP2, 0); digitalWrite(dmP3, 0);
           }
 
           void restartDisplayUart() {
@@ -109,8 +107,10 @@ jobs:
             if (millis() - lastTx < 500) return;
             lastTx = millis();
 
-            uint8_t pkt1 = {0xAA, (uint8_t)targetTempR, (uint8_t)errorCode, (uint8_t)(0xAA ^ targetTempR ^ errorCode)};
-            Serial1.write(pkt1, 4);
+            Serial1.write((uint8_t)0xAA);
+            Serial1.write((uint8_t)targetTempR);
+            Serial1.write((uint8_t)errorCode);
+            Serial1.write((uint8_t)(0xAA ^ targetTempR ^ errorCode));
           }
 
           void handleRoot() {
@@ -197,8 +197,10 @@ jobs:
               if (d == "lr") digitalWrite(PIN_LIGHT_R, !digitalRead(PIN_LIGHT_R));
               if (d == "lf") digitalWrite(PIN_LIGHT_F, !digitalRead(PIN_LIGHT_F));
               if (d == "beep") {
-                uint8_t testPkt = {0x55, 0xAA, 0xFF, 0xFF, 0x01, 0x04, 0x00, 0xFE};
-                Serial1.write(testPkt, 8);
+                Serial1.write((uint8_t)0x55);
+                Serial1.write((uint8_t)0xAA);
+                Serial1.write((uint8_t)0xFF);
+                Serial1.write((uint8_t)0x01);
               }
               server.sendHeader("Location", "/"); server.send(303);
             });
@@ -210,21 +212,3 @@ jobs:
             server.handleClient();
             updateDisplayBoard();
 
-            bool doorROpen = (digitalRead(PIN_DOOR_R) == LOW);
-            bool doorFOpen = (digitalRead(PIN_DOOR_F) == LOW);
-
-            if (doorROpen) {
-              digitalWrite(PIN_LIGHT_R, 1);
-              lightTimerR = millis();
-            } else if (millis() - lightTimerR > 10000) {
-              digitalWrite(PIN_LIGHT_R, 0);
-            }
-            digitalWrite(PIN_LIGHT_F, doorFOpen ? 1 : 0);
-          }
-          EOF
-          pio run
-      - uses: actions/upload-artifact@v4
-        with:
-          name: firmware-esp32s3
-          path: .pio/build/esp32s3/*.bin
-          
