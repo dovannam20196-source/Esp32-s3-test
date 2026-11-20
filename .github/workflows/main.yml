@@ -1,4 +1,4 @@
-name: Build ESP32-S3 Test DA92 Display
+name: Build ESP32-S3 DA92 5VScan
 on: [push]
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -20,63 +20,56 @@ jobs:
           #include <WiFi.h>
           #include <WebServer.h>
 
-          int protoMode = 1; // 1: 1200 8E1 thuong, 2: 2400 8E1 thuong, 3: 1200 8E1 dao cuc, 4: 2400 8E1 dao cuc, 5: 4800 8N1
-          bool swapPin = false;
-          String rxHex = "Chua nhan duoc";
+          int scanMode = 1;
+          String rxHex = "Chua co";
           WebServer server(80);
 
-          void setupDisplayUart() {
-            Serial1.end();
-            delay(50);
-            int rx = swapPin ? 15 : 16;
-            int tx = swapPin ? 16 : 15;
-            if (protoMode == 1) Serial1.begin(1200, SERIAL_8E1, rx, tx, false);
-            if (protoMode == 2) Serial1.begin(2400, SERIAL_8E1, rx, tx, false);
-            if (protoMode == 3) Serial1.begin(1200, SERIAL_8E1, rx, tx, true);
-            if (protoMode == 4) Serial1.begin(2400, SERIAL_8E1, rx, tx, true);
-            if (protoMode == 5) Serial1.begin(4800, SERIAL_8N1, rx, tx, false);
+          void setUart() {
+            Serial1.end(); delay(50);
+            if (scanMode == 1) Serial1.begin(9600, SERIAL_8E1, 16, 15, false);
+            if (scanMode == 2) Serial1.begin(9600, SERIAL_8N1, 16, 15, false);
+            if (scanMode == 3) Serial1.begin(4800, SERIAL_8E1, 16, 15, false);
+            if (scanMode == 4) Serial1.begin(2400, SERIAL_8E1, 16, 15, false);
+            if (scanMode == 5) Serial1.begin(1200, SERIAL_8E1, 16, 15, false);
           }
 
-          void sendSamsung14Byte() {
-            // Khung chuan 14-byte Samsung DA92 (Header 0x55 0xAA + LED ngan da/mat + Checksum)
-            uint8_t b0=0x55, b1=0xAA, b2=0x00, b3=0x0E, b4=0x01, b5=0x04, b6=0x04, b7=0x00, b8=0x00, b9=0x00, b10=0x00, b11=0x00, b12=0x00;
-            uint8_t cs = b2 + b3 + b4 + b5 + b6 + b7 + b8 + b9 + b10 + b11 + b12;
-            Serial1.write(b0); Serial1.write(b1); Serial1.write(b2); Serial1.write(b3);
-            Serial1.write(b4); Serial1.write(b5); Serial1.write(b6); Serial1.write(b7);
-            Serial1.write(b8); Serial1.write(b9); Serial1.write(b10); Serial1.write(b11);
-            Serial1.write(b12); Serial1.write(cs);
+          void sendFrames() {
+            // Goi 1: Header 0xAA 0x55 (14 byte)
+            Serial1.write(0xAA); Serial1.write(0x55); Serial1.write(0x01); Serial1.write(0x0A);
+            Serial1.write(0x04); Serial1.write(0x04); Serial1.write(0x00); Serial1.write(0x00);
+            Serial1.write(0x00); Serial1.write(0x00); Serial1.write(0x00); Serial1.write(0x00);
+            Serial1.write(0x00); Serial1.write(0x13);
+            delay(40);
+            // Goi 2: Header 0x55 0xAA (14 byte)
+            Serial1.write(0x55); Serial1.write(0xAA); Serial1.write(0x01); Serial1.write(0x0A);
+            Serial1.write(0x04); Serial1.write(0x04); Serial1.write(0x00); Serial1.write(0x00);
+            Serial1.write(0x00); Serial1.write(0x00); Serial1.write(0x00); Serial1.write(0x00);
+            Serial1.write(0x00); Serial1.write(0x13);
           }
 
           void handleRoot() {
             String h = "<html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>";
             h += "<style>body{background:#111;color:#fff;font-family:sans-serif;padding:15px}button{padding:12px;margin:5px;font-size:15px;background:#0284c7;color:#fff;border:none;border-radius:8px}.act{background:#16a34a}</style></head><body>";
-            h += "<h2>TEST BO KHIEN DA92-01137A</h2>";
-            h += "<p>Che do dang chay: <b>" + String(protoMode) + "</b> | Chan: <b>" + (swapPin ? "TX=16 / RX=15" : "TX=15 / RX=16") + "</b></p>";
-            h += "<p>Du lieu bo khien gui ve: <b>" + rxHex + "</b></p>";
-            h += "<a href='/m?p=1'><button class='" + String(protoMode==1?"act":"") + "'>1. 1200 8E1 Thuong</button></a><br>";
-            h += "<a href='/m?p=2'><button class='" + String(protoMode==2?"act":"") + "'>2. 2400 8E1 Thuong</button></a><br>";
-            h += "<a href='/m?p=3'><button class='" + String(protoMode==3?"act":"") + "'>3. 1200 8E1 Dao Cuc</button></a><br>";
-            h += "<a href='/m?p=4'><button class='" + String(protoMode==4?"act":"") + "'>4. 2400 8E1 Dao Cuc</button></a><br>";
-            h += "<a href='/m?p=5'><button class='" + String(protoMode==5?"act":"") + "'>5. 4800 8N1 Thuong</button></a><br><br>";
-            h += "<a href='/m?s=1'><button>Dao Chieu TX/RX</button></a>";
-            h += "<a href='/clear'><button>Xoa Bo Dem Nhan</button></a>";
+            h += "<h2>QUET DA92 (MACH DIODE 5V)</h2>";
+            h += "<p>Che do dang chay: <b>" + String(scanMode) + "</b></p>";
+            h += "<p>Phan hoi bo khien: <b>" + rxHex + "</b></p>";
+            h += "<a href='/s?m=1'><button class='" + String(scanMode==1?"act":"") + "'>1. 9600 8E1</button></a>";
+            h += "<a href='/s?m=2'><button class='" + String(scanMode==2?"act":"") + "'>2. 9600 8N1</button></a><br>";
+            h += "<a href='/s?m=3'><button class='" + String(scanMode==3?"act":"") + "'>3. 4800 8E1</button></a>";
+            h += "<a href='/s?m=4'><button class='" + String(scanMode==4?"act":"") + "'>4. 2400 8E1</button></a>";
+            h += "<a href='/s?m=5'><button class='" + String(scanMode==5?"act":"") + "'>5. 1200 8E1</button></a>";
             h += "</body></html>";
             server.send(200, "text/html", h);
           }
 
           void setup() {
             pinMode(17, OUTPUT); digitalWrite(17, 1);
-            setupDisplayUart();
+            setUart();
             WiFi.softAP("Samsung_TuLanh_S3", "12345678");
             server.on("/", handleRoot);
-            server.on("/m", [](){
-              if(server.hasArg("p")) protoMode = server.arg("p").toInt();
-              if(server.hasArg("s")) swapPin = !swapPin;
-              setupDisplayUart();
-              server.sendHeader("Location", "/"); server.send(303);
-            });
-            server.on("/clear", [](){
-              rxHex = "Chua nhan duoc";
+            server.on("/s", [](){
+              if(server.hasArg("m")) scanMode = server.arg("m").toInt();
+              setUart();
               server.sendHeader("Location", "/"); server.send(303);
             });
             server.begin();
@@ -85,12 +78,9 @@ jobs:
           void loop() {
             server.handleClient();
             static unsigned long t = 0;
-            if (millis() - t > 300) {
-              t = millis();
-              sendSamsung14Byte();
-            }
+            if (millis() - t > 250) { t = millis(); sendFrames(); }
             if (Serial1.available()) {
-              if (rxHex == "Chua nhan duoc") rxHex = "";
+              if (rxHex == "Chua co") rxHex = "";
               while (Serial1.available()) {
                 uint8_t b = Serial1.read();
                 if (b < 16) rxHex += "0";
