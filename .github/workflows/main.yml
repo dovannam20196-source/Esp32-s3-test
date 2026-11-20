@@ -1,12 +1,11 @@
 name: Build ESP32-S3-N16R8 Samsung Test
 on: [push]
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
       - run: |
           pip install -U platformio
           mkdir -p src
@@ -22,7 +21,7 @@ jobs:
           #include <WebServer.h>
 
           // --- SO DO CHAN BO LON ESP32-S3-N16R8 ---
-          int damperPins[4] = {4, 5, 6, 7};
+          int damperPins = {4, 5, 6, 7};
           #define PIN_LIGHT_R  17
           #define PIN_LIGHT_F  18
           #define PIN_FAN      20
@@ -47,7 +46,7 @@ jobs:
           unsigned long lightTimerR = 0;
           String lastRxHex = "Chua nhan duoc du lieu";
 
-          const int STEP_SEQ[4][4] = {
+          const int STEP_SEQ = {
             {1, 1, 0, 0},
             {0, 1, 1, 0},
             {0, 0, 1, 1},
@@ -56,9 +55,9 @@ jobs:
 
           void applyDamperMode(int mode) {
             damperMode = mode;
-            if (mode == 1) { damperPins[0]=4; damperPins[1]=5; damperPins[2]=6; damperPins[3]=7; }
-            if (mode == 2) { damperPins[0]=4; damperPins[1]=6; damperPins[2]=5; damperPins[3]=7; }
-            if (mode == 3) { damperPins[0]=4; damperPins[1]=6; damperPins[2]=7; damperPins[3]=5; }
+            if (mode == 1) { damperPins=4; damperPins=5; damperPins=6; damperPins=7; }
+            if (mode == 2) { damperPins=4; damperPins=6; damperPins=5; damperPins=7; }
+            if (mode == 3) { damperPins=4; damperPins=6; damperPins=7; damperPins=5; }
             for (int i = 0; i < 4; i++) {
               pinMode(damperPins[i], OUTPUT);
               digitalWrite(damperPins[i], 0);
@@ -110,7 +109,7 @@ jobs:
             if (millis() - lastTx < 500) return;
             lastTx = millis();
 
-            uint8_t pkt1[4] = {0xAA, (uint8_t)targetTempR, (uint8_t)errorCode, (uint8_t)(0xAA ^ targetTempR ^ errorCode)};
+            uint8_t pkt1 = {0xAA, (uint8_t)targetTempR, (uint8_t)errorCode, (uint8_t)(0xAA ^ targetTempR ^ errorCode)};
             Serial1.write(pkt1, 4);
           }
 
@@ -198,7 +197,7 @@ jobs:
               if (d == "lr") digitalWrite(PIN_LIGHT_R, !digitalRead(PIN_LIGHT_R));
               if (d == "lf") digitalWrite(PIN_LIGHT_F, !digitalRead(PIN_LIGHT_F));
               if (d == "beep") {
-                uint8_t testPkt[8] = {0x55, 0xAA, 0xFF, 0xFF, 0x01, 0x04, 0x00, 0xFE};
+                uint8_t testPkt = {0x55, 0xAA, 0xFF, 0xFF, 0x01, 0x04, 0x00, 0xFE};
                 Serial1.write(testPkt, 8);
               }
               server.sendHeader("Location", "/"); server.send(303);
@@ -224,4 +223,8 @@ jobs:
           }
           EOF
           pio run
+      - uses: actions/upload-artifact@v4
+        with:
+          name: firmware-esp32s3
+          path: .pio/build/esp32s3/*.bin
           
