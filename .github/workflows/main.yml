@@ -1,11 +1,12 @@
 name: Build ESP32-S3-N16R8 Samsung Test
 on: [push]
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+permissions:
+  contents: write
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
       - run: |
           pip install -U platformio
           mkdir -p src
@@ -211,4 +212,7 @@ jobs:
           void loop() {
             server.handleClient();
             updateDisplayBoard();
+
+            bool doorROpen = (digitalRead(PIN_DOOR_R) == LOW);
+            bool doorFOpen = (digitalRead(PIN_DOOR_F) == LOW);
 
