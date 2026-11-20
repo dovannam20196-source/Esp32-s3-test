@@ -22,7 +22,7 @@ jobs:
 
           int dmP0 = 4, dmP1 = 5, dmP2 = 6, dmP3 = 7;
           int dmMode = 1;
-          int uartMode = 1; // 1: 1200 8E1, 2: 2400 8E1, 3: 1200 8N1, 4: 2400 8N1
+          int uartMode = 1;
           bool swapPin = false;
           String rxHex = "Chua co";
           WebServer server(80);
@@ -60,9 +60,16 @@ jobs:
           }
 
           void sendSamsungWakeup() {
-            // Khung truyen 10-byte chuan Samsung Display DA92
-            uint8_t frame = {0x55, 0xAA, 0x00, 0x04, 0x12, 0x00, 0x00, 0x00, 0x00, 0x16};
-            Serial1.write(frame, 10);
+            Serial1.write((uint8_t)0x55);
+            Serial1.write((uint8_t)0xAA);
+            Serial1.write((uint8_t)0x00);
+            Serial1.write((uint8_t)0x04);
+            Serial1.write((uint8_t)0x12);
+            Serial1.write((uint8_t)0x00);
+            Serial1.write((uint8_t)0x00);
+            Serial1.write((uint8_t)0x00);
+            Serial1.write((uint8_t)0x00);
+            Serial1.write((uint8_t)0x16);
           }
 
           void handleRoot() {
