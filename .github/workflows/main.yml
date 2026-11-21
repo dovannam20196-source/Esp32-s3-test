@@ -1,4 +1,4 @@
-name: Build ESP32-S3 DA92 5VScan
+name: Build ESP32-S3 Samsung Damper Sens
 on: [push]
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -20,73 +20,102 @@ jobs:
           #include <WiFi.h>
           #include <WebServer.h>
 
-          int scanMode = 1;
-          String rxHex = "Chua co";
+          int dmP0 = 4, dmP1 = 5, dmP2 = 6, dmP3 = 7;
+          int dmMode = 1;
+          bool defOn = false;
+          unsigned long lightTimerR = 0;
           WebServer server(80);
 
-          void setUart() {
-            Serial1.end(); delay(50);
-            if (scanMode == 1) Serial1.begin(9600, SERIAL_8E1, 16, 15, false);
-            if (scanMode == 2) Serial1.begin(9600, SERIAL_8N1, 16, 15, false);
-            if (scanMode == 3) Serial1.begin(4800, SERIAL_8E1, 16, 15, false);
-            if (scanMode == 4) Serial1.begin(2400, SERIAL_8E1, 16, 15, false);
-            if (scanMode == 5) Serial1.begin(1200, SERIAL_8E1, 16, 15, false);
+          void setDm(int m) {
+            dmMode = m;
+            if (m == 1) { dmP0=4; dmP1=5; dmP2=6; dmP3=7; }
+            if (m == 2) { dmP0=4; dmP1=6; dmP2=5; dmP3=7; }
+            if (m == 3) { dmP0=4; dmP1=6; dmP2=7; dmP3=5; }
+            pinMode(dmP0, OUTPUT); pinMode(dmP1, OUTPUT);
+            pinMode(dmP2, OUTPUT); pinMode(dmP3, OUTPUT);
           }
 
-          void sendFrames() {
-            // Goi 1: Header 0xAA 0x55 (14 byte)
-            Serial1.write(0xAA); Serial1.write(0x55); Serial1.write(0x01); Serial1.write(0x0A);
-            Serial1.write(0x04); Serial1.write(0x04); Serial1.write(0x00); Serial1.write(0x00);
-            Serial1.write(0x00); Serial1.write(0x00); Serial1.write(0x00); Serial1.write(0x00);
-            Serial1.write(0x00); Serial1.write(0x13);
-            delay(40);
-            // Goi 2: Header 0x55 0xAA (14 byte)
-            Serial1.write(0x55); Serial1.write(0xAA); Serial1.write(0x01); Serial1.write(0x0A);
-            Serial1.write(0x04); Serial1.write(0x04); Serial1.write(0x00); Serial1.write(0x00);
-            Serial1.write(0x00); Serial1.write(0x00); Serial1.write(0x00); Serial1.write(0x00);
-            Serial1.write(0x00); Serial1.write(0x13);
+          void runDm(bool open) {
+            for (int s = 0; s < 500; s++) {
+              int i = open ? (s % 4) : (3 - (s % 4));
+              digitalWrite(dmP0, i==0 || i==3);
+              digitalWrite(dmP1, i==0 || i==1);
+              digitalWrite(dmP2, i==1 || i==2);
+              digitalWrite(dmP3, i==2 || i==3);
+              delay(8);
+            }
+            digitalWrite(dmP0, 0); digitalWrite(dmP1, 0);
+            digitalWrite(dmP2, 0); digitalWrite(dmP3, 0);
+          }
+
+          float readNTC(int pin, bool isParallel) {
+            int adc = analogRead(pin);
+            if (adc < 80 || adc > 4010) return -99.0;
+            float r_ntc = 3600.0 * ((float)adc / (4095.0 - adc));
+            if (isParallel) r_ntc = r_ntc * 2.0;
+            float steinhart = log(r_ntc / 5000.0) / 3950.0 + 1.0 / (25.0 + 273.15);
+            return (1.0 / steinhart) - 273.15;
           }
 
           void handleRoot() {
+            float tCom = readNTC(1, true);
+            float tDef = readNTC(2, false);
+            float tAmb = readNTC(3, false);
+            bool dF = (digitalRead(8) == LOW);
+            bool dR = (digitalRead(9) == LOW);
+
             String h = "<html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>";
-            h += "<style>body{background:#111;color:#fff;font-family:sans-serif;padding:15px}button{padding:12px;margin:5px;font-size:15px;background:#0284c7;color:#fff;border:none;border-radius:8px}.act{background:#16a34a}</style></head><body>";
-            h += "<h2>QUET DA92 (MACH DIODE 5V)</h2>";
-            h += "<p>Che do dang chay: <b>" + String(scanMode) + "</b></p>";
-            h += "<p>Phan hoi bo khien: <b>" + rxHex + "</b></p>";
-            h += "<a href='/s?m=1'><button class='" + String(scanMode==1?"act":"") + "'>1. 9600 8E1</button></a>";
-            h += "<a href='/s?m=2'><button class='" + String(scanMode==2?"act":"") + "'>2. 9600 8N1</button></a><br>";
-            h += "<a href='/s?m=3'><button class='" + String(scanMode==3?"act":"") + "'>3. 4800 8E1</button></a>";
-            h += "<a href='/s?m=4'><button class='" + String(scanMode==4?"act":"") + "'>4. 2400 8E1</button></a>";
-            h += "<a href='/s?m=5'><button class='" + String(scanMode==5?"act":"") + "'>5. 1200 8E1</button></a>";
+            h += "<style>body{background:#111;color:#fff;font-family:sans-serif;padding:12px}.card{background:#222;padding:12px;border-radius:8px;margin-bottom:10px}button{padding:11px;margin:4px;font-size:14px;background:#0284c7;color:#fff;border:none;border-radius:6px}.act{background:#16a34a}</style></head><body>";
+            h += "<h2>TEST DAMPER - CAM BIEN - CUA</h2>";
+
+            h += "<div class='card'><b>1. Cua Gio Damper (Pha " + String(dmMode) + ")</b><br>";
+            h += "<a href='/dm?m=1'><button class='" + String(dmMode==1?"act":"") + "'>Pha 1</button></a>";
+            h += "<a href='/dm?m=2'><button class='" + String(dmMode==2?"act":"") + "'>Pha 2</button></a>";
+            h += "<a href='/dm?m=3'><button class='" + String(dmMode==3?"act":"") + "'>Pha 3</button></a><br>";
+            h += "<a href='/t?c=open'><button>MO DAMPER</button></a><a href='/t?c=close'><button>DONG DAMPER</button></a></div>";
+
+            h += "<div class='card'><b>2. Cam Bien & Cong Tac Cua</b><br>";
+            h += "CB Da+Mat (1): <b>" + (tCom < -90 ? String("Chua noi") : String(tCom, 1) + "C") + "</b><br>";
+            h += "CB Dan Xa Da (2): <b>" + (tDef < -90 ? String("Chua noi") : String(tDef, 1) + "C") + "</b><br>";
+            h += "CB Moi Truong (3): <b>" + (tAmb < -90 ? String("Chua noi") : String(tAmb, 1) + "C") + "</b><br><br>";
+            h += "Cua Da (8): <b>" + String(dF ? "DANG MO" : "Dong") + "</b> | ";
+            h += "Cua Mat (9): <b>" + String(dR ? "DANG MO" : "Dong") + "</b></div>";
+
+            h += "<div class='card'><b>3. Test Tai Da Chay OK</b><br>";
+            h += "<a href='/t?c=fan'><button>Quat (20)</button></a><a href='/t?c=def'><button>Xa Da (21)</button></a>";
+            h += "<a href='/t?c=lr'><button>Den Mat (17)</button></a><a href='/t?c=lf'><button>Den Da (18)</button></a></div>";
             h += "</body></html>";
             server.send(200, "text/html", h);
           }
 
           void setup() {
-            pinMode(17, OUTPUT); digitalWrite(17, 1);
-            setUart();
+            pinMode(17, OUTPUT); pinMode(18, OUTPUT);
+            pinMode(20, OUTPUT); pinMode(21, OUTPUT);
+            pinMode(8, INPUT_PULLUP); pinMode(9, INPUT_PULLUP);
+            digitalWrite(17, 1);
+            setDm(1);
             WiFi.softAP("Samsung_TuLanh_S3", "12345678");
             server.on("/", handleRoot);
-            server.on("/s", [](){
-              if(server.hasArg("m")) scanMode = server.arg("m").toInt();
-              setUart();
-              server.sendHeader("Location", "/"); server.send(303);
+            server.on("/dm", [](){ setDm(server.arg("m").toInt()); server.sendHeader("Location","/"); server.send(303); });
+            server.on("/t", [](){
+              String c = server.arg("c");
+              if(c=="open") runDm(true);
+              if(c=="close") runDm(false);
+              if(c=="fan") digitalWrite(20, !digitalRead(20));
+              if(c=="def") { defOn = !defOn; digitalWrite(21, defOn); }
+              if(c=="lr") digitalWrite(17, !digitalRead(17));
+              if(c=="lf") digitalWrite(18, !digitalRead(18));
+              server.sendHeader("Location","/"); server.send(303);
             });
             server.begin();
+            lightTimerR = millis();
           }
 
           void loop() {
             server.handleClient();
-            static unsigned long t = 0;
-            if (millis() - t > 250) { t = millis(); sendFrames(); }
-            if (Serial1.available()) {
-              if (rxHex == "Chua co") rxHex = "";
-              while (Serial1.available()) {
-                uint8_t b = Serial1.read();
-                if (b < 16) rxHex += "0";
-                rxHex += String(b, HEX) + " ";
-              }
-            }
+            if (digitalRead(9) == LOW) { digitalWrite(17, 1); lightTimerR = millis(); }
+            else if (millis() - lightTimerR > 10000) { digitalWrite(17, 0); }
+            digitalWrite(18, digitalRead(8) == LOW ? 1 : 0);
           }
           EOF
           pio run
