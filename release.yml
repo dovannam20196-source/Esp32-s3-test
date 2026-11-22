@@ -1,0 +1,33 @@
+name: Xuat Firmware
+
+on: [push, workflow_dispatch]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: arduino/setup-arduino-cli@v2
+      - name: Install ESP32
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          rm -rf ~/.arduino15
+          gh release download 3.3.13 -R espressif/arduino-esp32 -p "package_esp32_index.json"
+          arduino-cli core update-index --additional-urls "file://$(pwd)/package_esp32_index.json"
+          arduino-cli core install esp32:esp32@3.3.13 --additional-urls "file://$(pwd)/package_esp32_index.json"
+      - name: Build
+        run: |
+          CODE_FILE=$(find . -not -path '*/.*' \( -name "*.ino" -o -name "*.cpp" \) | head -n 1)
+          mkdir -p /tmp/sketch
+          cp "$CODE_FILE" /tmp/sketch/sketch.ino
+          arduino-cli compile --fqbn esp32:esp32:esp32s3:FlashSize=16M,PSRAM=opi --output-dir ./build /tmp/sketch
+      - name: Dang len Releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete firmware-moi --yes || true
+          gh release create firmware-moi ./build/*.bin --title "Firmware ESP32-S3 Moi Nhat" --notes "Tu dong xuat file bin"
