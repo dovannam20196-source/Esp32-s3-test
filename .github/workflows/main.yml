@@ -1,4 +1,4 @@
-name: Build Samsung S3
+name: Build Samsung S3 Unlock UART 8E1
 
 on: [push, workflow_dispatch]
 
@@ -32,36 +32,32 @@ jobs:
           #include <WiFi.h>
           #include <WebServer.h>
 
-          int dmP0 = 4, dmP1 = 5, dmP2 = 6, dmP3 = 7;
+          // --- DAMPER PHA 2 CHUAN (4-6-5-7) ---
+          int dmP0 = 4, dmP1 = 6, dmP2 = 5, dmP3 = 7;
           #define PIN_LIGHT_R  17
           #define PIN_LIGHT_F  18
           #define PIN_FAN      20
           #define PIN_DEFROST  21
 
           WebServer server(80);
-          int damperMode = 1;
           bool dispSwap = false;
           long dispBaud = 9600;
-          String lastRxHex = "Chua co";
+          bool use8E1 = true;       // Mac dinh chuan Samsung SERIAL_8E1
+          bool autoScan = true;     // Tu dong gui xung danh thuc bo hien thi
+          int scanMode = 1;         // 1: Goi 0xAA, 2: Goi 0x55, 3: Goi 0xF0/All LED
+          String lastRxHex = "Dang cho tin hieu...";
 
-          void applyDamperMode(int mode) {
-            damperMode = mode;
-            if (mode == 1) { dmP0 = 4; dmP1 = 5; dmP2 = 6; dmP3 = 7; }
-            if (mode == 2) { dmP0 = 4; dmP1 = 6; dmP2 = 5; dmP3 = 7; }
-            if (mode == 3) { dmP0 = 4; dmP1 = 6; dmP2 = 7; dmP3 = 5; }
-            pinMode(dmP0, OUTPUT); digitalWrite(dmP0, 0);
-            pinMode(dmP1, OUTPUT); digitalWrite(dmP1, 0);
-            pinMode(dmP2, OUTPUT); digitalWrite(dmP2, 0);
-            pinMode(dmP3, OUTPUT); digitalWrite(dmP3, 0);
+          void stepWrite(int idx) {
+            if (idx == 0) { digitalWrite(dmP0, 1); digitalWrite(dmP1, 1); digitalWrite(dmP2, 0); digitalWrite(dmP3, 0); }
+            if (idx == 1) { digitalWrite(dmP0, 0); digitalWrite(dmP1, 1); digitalWrite(dmP2, 1); digitalWrite(dmP3, 0); }
+            if (idx == 2) { digitalWrite(dmP0, 0); digitalWrite(dmP1, 0); digitalWrite(dmP2, 1); digitalWrite(dmP3, 1); }
+            if (idx == 3) { digitalWrite(dmP0, 1); digitalWrite(dmP1, 0); digitalWrite(dmP2, 0); digitalWrite(dmP3, 1); }
           }
 
           void runDamper(bool openCmd) {
             for (int step = 0; step < 500; step++) {
-              int idx = openCmd ? (step % 4) : (3 - (step % 4));
-              digitalWrite(dmP0, (idx == 0 || idx == 3) ? 1 : 0);
-              digitalWrite(dmP1, (idx == 0 || idx == 1) ? 1 : 0);
-              digitalWrite(dmP2, (idx == 1 || idx == 2) ? 1 : 0);
-              digitalWrite(dmP3, (idx == 2 || idx == 3) ? 1 : 0);
+              int idx = openCmd ? (3 - (step % 4)) : (step % 4);
+              stepWrite(idx);
               delay(8);
             }
             digitalWrite(dmP0, 0); digitalWrite(dmP1, 0); digitalWrite(dmP2, 0); digitalWrite(dmP3, 0);
@@ -70,52 +66,103 @@ jobs:
           void restartDisplayUart() {
             Serial1.end();
             delay(50);
-            Serial1.begin(dispBaud, SERIAL_8N1, dispSwap ? 15 : 16, dispSwap ? 16 : 15);
+            int tx = dispSwap ? 16 : 15;
+            int rx = dispSwap ? 15 : 16;
+            uint32_t cfg = use8E1 ? SERIAL_8E1 : SERIAL_8N1;
+            Serial1.begin(dispBaud, cfg, rx, tx);
+          }
+
+          void sendSamsungWakePacket() {
+            if (scanMode == 1) {
+              // Khung chuan Samsung Side-by-Side 0xAA (Bat sang LED + Beep)
+              uint8_t pkt[] = {0xAA, 0x05, 0x04, 0xEC, 0x01, 0x00, 0x5A};
+              Serial1.write(pkt, sizeof(pkt));
+            } else if (scanMode == 2) {
+              // Khung chuan Samsung doi 0x55 (Bat toan bo LED kiem tra)
+              uint8_t pkt[] = {0x55, 0xAA, 0x08, 0xFF, 0xFF, 0x01, 0x00, 0x06};
+              Serial1.write(pkt, sizeof(pkt));
+            } else if (scanMode == 3) {
+              // Khung 10 byte day du bat sang tat ca den nhiet do
+              uint8_t pkt[] = {0xAA, 0x0A, 0x01, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0xB2};
+              Serial1.write(pkt, sizeof(pkt));
+            }
           }
 
           void handleRoot() {
             String html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>";
-            html += "<style>body{font-family:sans-serif;background:#111;color:#fff;padding:12px;}.card{background:#222;padding:12px;border-radius:8px;margin-bottom:10px;}button{padding:10px 14px;font-size:15px;margin:4px;border-radius:6px;border:none;background:#0284c7;color:#fff;}.act{background:#16a34a;}</style></head><body>";
-            html += "<h3>TEST SAMSUNG S3-N16R8</h3>";
-            html += "<div class='card'><b>1. Damper (4,5,6,7) - Kieu " + String(damperMode) + "</b><br>";
-            html += "<a href='/dm?m=1'><button class='" + String(damperMode==1?"act":"") + "'>Pha 1</button></a>";
-            html += "<a href='/dm?m=2'><button class='" + String(damperMode==2?"act":"") + "'>Pha 2</button></a>";
-            html += "<a href='/dm?m=3'><button class='" + String(damperMode==3?"act":"") + "'>Pha 3</button></a><br>";
-            html += "<a href='/t?d=open'><button>MO DAMPER</button></a><a href='/t?d=close'><button>DONG DAMPER</button></a></div>";
-            html += "<div class='card'><b>2. Bo Khien (15,16) - Baud " + String(dispBaud) + "</b><br>Nhan: " + lastRxHex + "<br>";
-            html += "<a href='/u?s=1'><button>Dao TX/RX</button></a><a href='/u?b=2400'><button>2400</button></a><a href='/u?b=4800'><button>4800</button></a><a href='/u?b=9600'><button>9600</button></a><a href='/t?d=beep'><button>Test Beep</button></a></div>";
-            html += "<div class='card'><b>3. Tai Khac</b><br><a href='/t?d=fan'><button>Quat 20</button></a><a href='/t?d=def'><button>Xa Da 21</button></a><a href='/t?d=lr'><button>Den Mat 17</button></a><a href='/t?d=lf'><button>Den Da 18</button></a></div>";
+            html += "<style>body{font-family:sans-serif;background:#111;color:#eee;padding:12px;}";
+            html += ".card{background:#222;padding:14px;border-radius:10px;margin-bottom:12px;}";
+            html += "button{padding:11px 14px;font-size:14px;margin:4px;border-radius:8px;border:none;background:#0284c7;color:#fff;}";
+            html += ".act{background:#16a34a;} .warn{background:#d97706;}</style></head><body>";
+            html += "<h3>MO KHOA BO KHIEN SAMSUNG (8E1)</h3>";
+
+            html += "<div class='card'><b>1. Trang Thai UART Bo Hien Thi (15, 16)</b><br>";
+            html += "Chuan: <b>" + String(use8E1 ? "SERIAL_8E1 (Chuan Samsung)" : "SERIAL_8N1") + "</b> | Baud: <b>" + String(dispBaud) + "</b><br>";
+            html += "Chieu day: <b>" + String(dispSwap ? "TX=16 / RX=15" : "TX=15 / RX=16") + "</b><br>";
+            html += "Ma phim nhan ve: <b style='color:#4ade80;'>" + lastRxHex + "</b><br><br>";
+
+            html += "<a href='/u?p=1'><button class='" + String(use8E1?"act":"") + "'>Dung 8E1 (Samsung)</button></a>";
+            html += "<a href='/u?p=0'><button class='" + String(!use8E1?"act":"") + "'>Dung 8N1</button></a>";
+            html += "<a href='/u?swap=1'><button class='warn'>Dao TX/RX</button></a><br>";
+
+            html += "<a href='/u?b=9600'><button class='" + String(dispBaud==9600?"act":"") + "'>9600</button></a>";
+            html += "<a href='/u?b=4800'><button class='" + String(dispBaud==4800?"act":"") + "'>4800</button></a>";
+            html += "<a href='/u?b=2400'><button class='" + String(dispBaud==2400?"act":"") + "'>2400</button></a><br><br>";
+
+            html += "<b>Chon Goi Tin Danh Thuc LED:</b><br>";
+            html += "<a href='/u?m=1'><button class='" + String(scanMode==1?"act":"") + "'>Goi 1 (0xAA)</button></a>";
+            html += "<a href='/u?m=2'><button class='" + String(scanMode==2?"act":"") + "'>Goi 2 (0x55)</button></a>";
+            html += "<a href='/u?m=3'><button class='" + String(scanMode==3?"act":"") + "'>Goi 3 (All LED)</button></a>";
+            html += "<a href='/'><button style='background:#475569;'>Lam Moi Trang</button></a></div>";
+
+            html += "<div class='card'><b>2. Damper Pha 2 Chuan (Da Dao Chieu)</b><br>";
+            html += "<a href='/t?d=open'><button class='act'>MO DAMPER</button></a>";
+            html += "<a href='/t?d=close'><button style='background:#dc2626;'>DONG DAMPER</button></a></div>";
             html += "</body></html>";
             server.send(200, "text/html", html);
           }
 
           void setup() {
+            pinMode(dmP0, OUTPUT); digitalWrite(dmP0, 0);
+            pinMode(dmP1, OUTPUT); digitalWrite(dmP1, 0);
+            pinMode(dmP2, OUTPUT); digitalWrite(dmP2, 0);
+            pinMode(dmP3, OUTPUT); digitalWrite(dmP3, 0);
             pinMode(PIN_FAN, OUTPUT); digitalWrite(PIN_FAN, 0);
             pinMode(PIN_DEFROST, OUTPUT); digitalWrite(PIN_DEFROST, 0);
             pinMode(PIN_LIGHT_R, OUTPUT); digitalWrite(PIN_LIGHT_R, 0);
             pinMode(PIN_LIGHT_F, OUTPUT); digitalWrite(PIN_LIGHT_F, 0);
-            applyDamperMode(1);
+
             restartDisplayUart();
             WiFi.softAP("Samsung_TuLanh_S3", "12345678");
+
             server.on("/", handleRoot);
-            server.on("/dm", [](){ if(server.hasArg("m")) applyDamperMode(server.arg("m").toInt()); server.sendHeader("Location","/"); server.send(303); });
-            server.on("/u", [](){ if(server.hasArg("s")) dispSwap=!dispSwap; if(server.hasArg("b")) dispBaud=server.arg("b").toInt(); restartDisplayUart(); server.sendHeader("Location","/"); server.send(303); });
-            server.on("/t", [](){
+            server.on("/u", []() {
+              if (server.hasArg("p")) use8E1 = (server.arg("p").toInt() == 1);
+              if (server.hasArg("swap")) dispSwap = !dispSwap;
+              if (server.hasArg("b")) dispBaud = server.arg("b").toInt();
+              if (server.hasArg("m")) scanMode = server.arg("m").toInt();
+              restartDisplayUart();
+              sendSamsungWakePacket();
+              server.sendHeader("Location", "/");
+              server.send(303);
+            });
+            server.on("/t", []() {
               String d = server.arg("d");
-              if(d=="open") runDamper(true);
-              if(d=="close") runDamper(false);
-              if(d=="fan") digitalWrite(PIN_FAN, !digitalRead(PIN_FAN));
-              if(d=="def") digitalWrite(PIN_DEFROST, !digitalRead(PIN_DEFROST));
-              if(d=="lr") digitalWrite(PIN_LIGHT_R, !digitalRead(PIN_LIGHT_R));
-              if(d=="lf") digitalWrite(PIN_LIGHT_F, !digitalRead(PIN_LIGHT_F));
-              if(d=="beep"){ for(int i=0;i<3;i++){ Serial1.write(0xAA); Serial1.write(0x04); Serial1.write(0x01); Serial1.write(0xAF); delay(100); } }
-              server.sendHeader("Location","/"); server.send(303);
+              if (d == "open") runDamper(true);
+              if (d == "close") runDamper(false);
+              server.sendHeader("Location", "/");
+              server.send(303);
             });
             server.begin();
           }
 
           void loop() {
             server.handleClient();
+            static unsigned long lastSend = 0;
+            if (autoScan && millis() - lastSend > 400) {
+              lastSend = millis();
+              sendSamsungWakePacket();
+            }
             if (Serial1.available()) {
               lastRxHex = "";
               while (Serial1.available()) {
@@ -129,5 +176,5 @@ jobs:
 
           pio run
           gh release delete samsung-s3 --yes || true
-          gh release create samsung-s3 .pio/build/esp32s3/bootloader.bin .pio/build/esp32s3/partitions.bin .pio/build/esp32s3/firmware.bin --title "Firmware Samsung S3" --notes "Tai truc tiep 3 file bin"
+          gh release create samsung-s3 .pio/build/esp32s3/bootloader.bin .pio/build/esp32s3/partitions.bin .pio/build/esp32s3/firmware.bin --title "Firmware Samsung S3 8E1 Unlock" --notes "Quet SERIAL_8E1 danh thuc bo hien thi DA92-01137A"
           
