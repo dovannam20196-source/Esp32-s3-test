@@ -9,8 +9,11 @@ jobs:
       - uses: actions/checkout@v5
       - uses: arduino/setup-arduino-cli@v2
       - name: Install ESP32
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           rm -rf ~/.arduino15
+          gh release download 3.3.13 -R espressif/arduino-esp32 -p "package_esp32_index.json"
           arduino-cli core update-index --additional-urls "file://$(pwd)/package_esp32_index.json"
           arduino-cli core install esp32:esp32@3.3.13 --additional-urls "file://$(pwd)/package_esp32_index.json"
       - name: Build
