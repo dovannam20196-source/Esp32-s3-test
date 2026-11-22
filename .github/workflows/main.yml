@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Arduino CLI
         uses: arduino/setup-arduino-cli@v2
@@ -18,7 +18,7 @@ jobs:
       - name: Install ESP32 Core
         run: |
           arduino-cli config init
-          arduino-cli config add board_manager.additional_urls https://github.io
+          arduino-cli config set board_manager.additional_urls https://github.io
           arduino-cli core update-index
           arduino-cli core install esp32:esp32
 
@@ -27,7 +27,7 @@ jobs:
           arduino-cli compile --fqbn esp32:esp32:esp32s3:FlashSize=16M,PSRAM=opi --output-dir ./build .
 
       - name: Upload Firmware Artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: firmware-esp32s3
           path: ./build/*.bin
