@@ -10,9 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - name: Build and Release
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Build Firmware
         run: |
           pip install -U platformio
           mkdir -p src
@@ -32,7 +30,6 @@ jobs:
           #include <WiFi.h>
           #include <WebServer.h>
 
-          // --- DAMPER PHA 2 CHUAN (4-6-5-7) ---
           int dmP0 = 4, dmP1 = 6, dmP2 = 5, dmP3 = 7;
           #define PIN_LIGHT_R  17
           #define PIN_LIGHT_F  18
@@ -42,9 +39,9 @@ jobs:
           WebServer server(80);
           bool dispSwap = false;
           long dispBaud = 9600;
-          bool use8E1 = true;       // Mac dinh chuan Samsung SERIAL_8E1
-          bool autoScan = true;     // Tu dong gui xung danh thuc bo hien thi
-          int scanMode = 1;         // 1: Goi 0xAA, 2: Goi 0x55, 3: Goi 0xF0/All LED
+          bool use8E1 = true;
+          bool autoScan = true;
+          int scanMode = 1;
           String lastRxHex = "Dang cho tin hieu...";
 
           void stepWrite(int idx) {
@@ -74,15 +71,12 @@ jobs:
 
           void sendSamsungWakePacket() {
             if (scanMode == 1) {
-              // Khung chuan Samsung Side-by-Side 0xAA (Bat sang LED + Beep)
               uint8_t pkt[] = {0xAA, 0x05, 0x04, 0xEC, 0x01, 0x00, 0x5A};
               Serial1.write(pkt, sizeof(pkt));
             } else if (scanMode == 2) {
-              // Khung chuan Samsung doi 0x55 (Bat toan bo LED kiem tra)
               uint8_t pkt[] = {0x55, 0xAA, 0x08, 0xFF, 0xFF, 0x01, 0x00, 0x06};
               Serial1.write(pkt, sizeof(pkt));
             } else if (scanMode == 3) {
-              // Khung 10 byte day du bat sang tat ca den nhiet do
               uint8_t pkt[] = {0xAA, 0x0A, 0x01, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0xB2};
               Serial1.write(pkt, sizeof(pkt));
             }
@@ -90,31 +84,23 @@ jobs:
 
           void handleRoot() {
             String html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>";
-            html += "<style>body{font-family:sans-serif;background:#111;color:#eee;padding:12px;}";
-            html += ".card{background:#222;padding:14px;border-radius:10px;margin-bottom:12px;}";
-            html += "button{padding:11px 14px;font-size:14px;margin:4px;border-radius:8px;border:none;background:#0284c7;color:#fff;}";
-            html += ".act{background:#16a34a;} .warn{background:#d97706;}</style></head><body>";
+            html += "<style>body{font-family:sans-serif;background:#111;color:#eee;padding:12px;}.card{background:#222;padding:14px;border-radius:10px;margin-bottom:12px;}button{padding:11px 14px;font-size:14px;margin:4px;border-radius:8px;border:none;background:#0284c7;color:#fff;}.act{background:#16a34a;}.warn{background:#d97706;}</style></head><body>";
             html += "<h3>MO KHOA BO KHIEN SAMSUNG (8E1)</h3>";
-
-            html += "<div class='card'><b>1. Trang Thai UART Bo Hien Thi (15, 16)</b><br>";
-            html += "Chuan: <b>" + String(use8E1 ? "SERIAL_8E1 (Chuan Samsung)" : "SERIAL_8N1") + "</b> | Baud: <b>" + String(dispBaud) + "</b><br>";
+            html += "<div class='card'><b>1. Trang Thai UART (15, 16)</b><br>";
+            html += "Chuan: <b>" + String(use8E1 ? "SERIAL_8E1 (Samsung)" : "SERIAL_8N1") + "</b> | Baud: <b>" + String(dispBaud) + "</b><br>";
             html += "Chieu day: <b>" + String(dispSwap ? "TX=16 / RX=15" : "TX=15 / RX=16") + "</b><br>";
-            html += "Ma phim nhan ve: <b style='color:#4ade80;'>" + lastRxHex + "</b><br><br>";
-
-            html += "<a href='/u?p=1'><button class='" + String(use8E1?"act":"") + "'>Dung 8E1 (Samsung)</button></a>";
-            html += "<a href='/u?p=0'><button class='" + String(!use8E1?"act":"") + "'>Dung 8N1</button></a>";
+            html += "Ma nhan ve: <b style='color:#4ade80;'>" + lastRxHex + "</b><br><br>";
+            html += "<a href='/u?p=1'><button class='" + String(use8E1?"act":"") + "'>8E1 (Samsung)</button></a>";
+            html += "<a href='/u?p=0'><button class='" + String(!use8E1?"act":"") + "'>8N1</button></a>";
             html += "<a href='/u?swap=1'><button class='warn'>Dao TX/RX</button></a><br>";
-
             html += "<a href='/u?b=9600'><button class='" + String(dispBaud==9600?"act":"") + "'>9600</button></a>";
             html += "<a href='/u?b=4800'><button class='" + String(dispBaud==4800?"act":"") + "'>4800</button></a>";
             html += "<a href='/u?b=2400'><button class='" + String(dispBaud==2400?"act":"") + "'>2400</button></a><br><br>";
-
-            html += "<b>Chon Goi Tin Danh Thuc LED:</b><br>";
+            html += "<b>Goi Danh Thuc LED:</b><br>";
             html += "<a href='/u?m=1'><button class='" + String(scanMode==1?"act":"") + "'>Goi 1 (0xAA)</button></a>";
             html += "<a href='/u?m=2'><button class='" + String(scanMode==2?"act":"") + "'>Goi 2 (0x55)</button></a>";
             html += "<a href='/u?m=3'><button class='" + String(scanMode==3?"act":"") + "'>Goi 3 (All LED)</button></a>";
-            html += "<a href='/'><button style='background:#475569;'>Lam Moi Trang</button></a></div>";
-
+            html += "<a href='/'><button style='background:#475569;'>Lam Moi</button></a></div>";
             html += "<div class='card'><b>2. Damper Pha 2 Chuan (Da Dao Chieu)</b><br>";
             html += "<a href='/t?d=open'><button class='act'>MO DAMPER</button></a>";
             html += "<a href='/t?d=close'><button style='background:#dc2626;'>DONG DAMPER</button></a></div>";
@@ -131,10 +117,8 @@ jobs:
             pinMode(PIN_DEFROST, OUTPUT); digitalWrite(PIN_DEFROST, 0);
             pinMode(PIN_LIGHT_R, OUTPUT); digitalWrite(PIN_LIGHT_R, 0);
             pinMode(PIN_LIGHT_F, OUTPUT); digitalWrite(PIN_LIGHT_F, 0);
-
             restartDisplayUart();
             WiFi.softAP("Samsung_TuLanh_S3", "12345678");
-
             server.on("/", handleRoot);
             server.on("/u", []() {
               if (server.hasArg("p")) use8E1 = (server.arg("p").toInt() == 1);
@@ -175,6 +159,14 @@ jobs:
           EOF
 
           pio run
-          gh release delete samsung-s3 --yes || true
-          gh release create samsung-s3 .pio/build/esp32s3/bootloader.bin .pio/build/esp32s3/partitions.bin .pio/build/esp32s3/firmware.bin --title "Firmware Samsung S3 8E1 Unlock" --notes "Quet SERIAL_8E1 danh thuc bo hien thi DA92-01137A"
-          
+
+      - name: Publish Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.0-samsung-s3
+          name: Firmware Samsung S3 8E1
+          files: |
+            .pio/build/esp32s3/bootloader.bin
+            .pio/build/esp32s3/partitions.bin
+            .pio/build/esp32s3/firmware.bin
+            
