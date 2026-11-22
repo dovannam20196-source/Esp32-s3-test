@@ -18,10 +18,18 @@ jobs:
           arduino-cli core install esp32:esp32@3.3.13 --additional-urls "file://$(pwd)/package_esp32_index.json"
       - name: Build
         run: |
-          SKETCH=$(find . -maxdepth 2 -name "*.ino" | head -n 1)
-          echo "Compiling: $SKETCH"
-          arduino-cli compile --fqbn esp32:esp32:esp32s3:FlashSize=16M,PSRAM=opi --output-dir ./build "$SKETCH"
+          echo "--- Danh sach file trong repo ---"
+          find . -maxdepth 3 -not -path '*/.*'
+          CODE_FILE=$(find . -not -path '*/.*' \( -name "*.ino" -o -name "*.cpp" \) | head -n 1)
+          if [ -z "$CODE_FILE" ]; then
+            echo "LOI: Khong tim thay bat ky file code .ino hay .cpp nao trong repo!"
+            exit 1
+          fi
+          mkdir -p /tmp/sketch
+          cp "$CODE_FILE" /tmp/sketch/sketch.ino
+          arduino-cli compile --fqbn esp32:esp32:esp32s3:FlashSize=16M,PSRAM=opi --output-dir ./build /tmp/sketch
       - uses: actions/upload-artifact@v5
         with:
           name: firmware-bin
-          path: ./build/*.
+          path: ./build/*.bin
+          
