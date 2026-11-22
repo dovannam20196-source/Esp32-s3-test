@@ -10,10 +10,9 @@ jobs:
       - uses: arduino/setup-arduino-cli@v2
       - name: Install ESP32
         run: |
-          P1=https:/
-          P2=/espressif.github.io/arduino-esp32/package_esp32_index.json
-          arduino-cli core update-index --additional-urls $P1$P2
-          arduino-cli core install esp32:esp32 --additional-urls $P1$P2
+          rm -rf ~/.arduino15
+          arduino-cli core update-index --additional-urls "file://$(pwd)/package_esp32_index.json"
+          arduino-cli core install esp32:esp32@3.3.13 --additional-urls "file://$(pwd)/package_esp32_index.json"
       - name: Build
         run: |
           arduino-cli compile --fqbn esp32:esp32:esp32s3:FlashSize=16M,PSRAM=opi --output-dir ./build .
