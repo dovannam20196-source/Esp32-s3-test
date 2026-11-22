@@ -1,37 +1,34 @@
-// Khai báo 3 chân điều khiển Damper
-const int DAMPER_PINS[3] = {5, 6, 7};
+name: Build ESP32-S3 Firmware
 
-void setup() {
-  for (int i = 0; i < 3; i++) {
-    pinMode(DAMPER_PINS[i], OUTPUT);
-    digitalWrite(DAMPER_PINS[i], LOW); // Mặc định ngắt điện cuộn dây
-  }
-  
-  // Chạy test ngay khi cấp nguồn: Mở cửa gió -> nghỉ 2 giây -> Đóng cửa gió
-  quayDamper(true, 180);   // Mở cửa gió (180 chu kỳ)
-  delay(2000);
-  quayDamper(false, 180);  // Đóng cửa gió (180 chu kỳ)
-}
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
 
-void loop() {
-  // Để trống hoặc đưa vào logic điều khiển nhiệt độ chính của tủ
-}
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-// Hàm điều khiển quay Damper 3 pha (moCua = true: Mở, false: Đóng)
-void quayDamper(bool moCua, int soVong) {
-  for (int v = 0; v < soVong; v++) {
-    for (int step = 0; step < 3; step++) {
-      int idx = moCua ? step : (2 - step); // Đảo thứ tự pha khi đóng cửa
-      
-      // Chỉ bật 1 pha tại 1 thời điểm
-      for (int p = 0; p < 3; p++) {
-        digitalWrite(DAMPER_PINS[p], (p == idx) ? HIGH : LOW);
-      }
-      delay(5); // Trễ 5ms mỗi bước để bánh răng kéo khỏe, không trượt bước
-    }
-  }
-  // Ngắt điện hoàn toàn cả 3 pha sau khi quay xong để tránh nóng cuộn dây
-  for (int i = 0; i < 3; i++) {
-    digitalWrite(DAMPER_PINS[i], LOW);
-  }
-}
+      - name: Setup Arduino CLI
+        uses: arduino/setup-arduino-cli@v2
+
+      - name: Install ESP32 Core
+        run: |
+          arduino-cli config init
+          arduino-cli config add board_manager.additional_urls https://github.io
+          arduino-cli core update-index
+          arduino-cli core install esp32:esp32
+
+      - name: Compile Firmware
+        run: |
+          arduino-cli compile --fqbn esp32:esp32:esp32s3:FlashSize=16M,PSRAM=opi --output-dir ./build .
+
+      - name: Upload Firmware Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: firmware-esp32s3
+          path: ./build/*.bin
+          
