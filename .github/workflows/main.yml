@@ -1,0 +1,220 @@
+name: Build ESP32-S3-N16R8 Samsung Test
+
+on: [push, workflow_dispatch]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Build Firmware
+        run: |
+          pip install -U platformio
+          mkdir -p src
+          cat << 'EOF' > platformio.ini
+          [env:esp32s3]
+          platform = espressif32
+          board = esp32-s3-devkitc-1
+          framework = arduino
+          board_build.arduino.memory_type = qio_opi
+          board_build.flash_mode = qio
+          board_build.psram_type = opi
+          board_upload.flash_size = 16MB
+          EOF
+
+          cat << 'EOF' > src/main.cpp
+          #include <Arduino.h>
+          #include <WiFi.h>
+          #include <WebServer.h>
+
+          // --- SO DO CHAN BO LON ESP32-S3-N16R8 ---
+          int dmP0 = 4, dmP1 = 5, dmP2 = 6, dmP3 = 7;
+          #define PIN_LIGHT_R  17
+          #define PIN_LIGHT_F  18
+          #define PIN_FAN      20
+          #define PIN_DEFROST  21
+
+          // --- CAC CHAN CHO HAN SAU ---
+          #define PIN_SENS_COM 1
+          #define PIN_SENS_DEF 2
+          #define PIN_SENS_AMB 3
+          #define PIN_DOOR_F   8
+          #define PIN_DOOR_R   9
+          #define PIN_COMP_TX  10
+          #define PIN_COMP_RX  11
+
+          WebServer server(80);
+          int targetTempR = 4;
+          int damperMode = 1;
+          bool dispSwap = false;
+          long dispBaud = 9600;
+          int errorCode = 0;
+          String lastRxHex = "Chua nhan duoc du lieu";
+
+          void applyDamperMode(int mode) {
+            damperMode = mode;
+            if (mode == 1) { dmP0 = 4; dmP1 = 5; dmP2 = 6; dmP3 = 7; }
+            if (mode == 2) { dmP0 = 4; dmP1 = 6; dmP2 = 5; dmP3 = 7; }
+            if (mode == 3) { dmP0 = 4; dmP1 = 6; dmP2 = 7; dmP3 = 5; }
+            pinMode(dmP0, OUTPUT); digitalWrite(dmP0, 0);
+            pinMode(dmP1, OUTPUT); digitalWrite(dmP1, 0);
+            pinMode(dmP2, OUTPUT); digitalWrite(dmP2, 0);
+            pinMode(dmP3, OUTPUT); digitalWrite(dmP3, 0);
+          }
+
+          void stepWrite(int idx) {
+            if (idx == 0) { digitalWrite(dmP0, 1); digitalWrite(dmP1, 1); digitalWrite(dmP2, 0); digitalWrite(dmP3, 0); }
+            if (idx == 1) { digitalWrite(dmP0, 0); digitalWrite(dmP1, 1); digitalWrite(dmP2, 1); digitalWrite(dmP3, 0); }
+            if (idx == 2) { digitalWrite(dmP0, 0); digitalWrite(dmP1, 0); digitalWrite(dmP2, 1); digitalWrite(dmP3, 1); }
+            if (idx == 3) { digitalWrite(dmP0, 1); digitalWrite(dmP1, 0); digitalWrite(dmP2, 0); digitalWrite(dmP3, 1); }
+          }
+
+          void runDamper(bool openCmd) {
+            for (int step = 0; step < 500; step++) {
+              int idx = openCmd ? (step % 4) : (3 - (step % 4));
+              stepWrite(idx);
+              delay(8);
+            }
+            digitalWrite(dmP0, 0); digitalWrite(dmP1, 0); digitalWrite(dmP2, 0); digitalWrite(dmP3, 0);
+          }
+
+          void restartDisplayUart() {
+            Serial1.end();
+            delay(50);
+            int tx = dispSwap ? 16 : 15;
+            int rx = dispSwap ? 15 : 16;
+            Serial1.begin(dispBaud, SERIAL_8N1, rx, tx);
+          }
+
+          float readNTC(int pin, bool isParallel) {
+            int adc = analogRead(pin);
+            if (adc < 80 || adc > 4010) return -99.0;
+            float r_ntc = 3600.0 * ((float)adc / (4095.0 - adc));
+            if (isParallel) r_ntc = r_ntc * 2.0;
+            float steinhart = log(r_ntc / 5000.0) / 3950.0 + 1.0 / (25.0 + 273.15);
+            return (1.0 / steinhart) - 273.15;
+          }
+
+          void updateDisplayBoard() {
+            static unsigned long lastTx = 0;
+            if (Serial1.available()) {
+              lastRxHex = "";
+              while (Serial1.available()) {
+                uint8_t b = Serial1.read();
+                if (b < 16) lastRxHex += "0";
+                lastRxHex += String(b, HEX) + " ";
+                if (b == 0x01 || b == 0x11) {
+                  targetTempR++;
+                  if (targetTempR > 7) targetTempR = 1;
+                }
+              }
+            }
+            if (millis() - lastTx < 500) return;
+            lastTx = millis();
+            Serial1.write((uint8_t)0xAA);
+            Serial1.write((uint8_t)targetTempR);
+            Serial1.write((uint8_t)errorCode);
+            Serial1.write((uint8_t)(0xAA ^ targetTempR ^ errorCode));
+          }
+
+          void handleRoot() {
+            float tCom = readNTC(PIN_SENS_COM, true);
+            float tDef = readNTC(PIN_SENS_DEF, false);
+            float tAmb = readNTC(PIN_SENS_AMB, false);
+
+            String html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>";
+            html += "<title>Test Samsung N16R8</title><style>body{font-family:sans-serif;background:#111;color:#eee;padding:12px;}";
+            html += ".card{background:#222;padding:14px;border-radius:10px;margin-bottom:12px;}";
+            html += "button{padding:10px 14px;font-size:15px;margin:4px;border-radius:8px;border:none;background:#0284c7;color:#fff;}";
+            html += ".act{background:#16a34a;}</style></head><body>";
+            html += "<h2>TEST DAMPER & BO KHIEN</h2>";
+
+            html += "<div class='card'><b>1. Test Cua Gio Damper (Chan 4,5,6,7)</b><br>";
+            html += "Dang chon kieu pha: <b>Kieu " + String(damperMode) + "</b><br>";
+            html += "<a href='/dm?m=1'><button class='" + String(damperMode==1?"act":"") + "'>Pha 1 (4-5-6-7)</button></a>";
+            html += "<a href='/dm?m=2'><button class='" + String(damperMode==2?"act":"") + "'>Pha 2 (4-6-5-7)</button></a>";
+            html += "<a href='/dm?m=3'><button class='" + String(damperMode==3?"act":"") + "'>Pha 3 (4-6-7-5)</button></a><br><br>";
+            html += "<a href='/test?d=open'><button>QUAY MO DAMPER</button></a>";
+            html += "<a href='/test?d=close'><button>QUAY DONG DAMPER</button></a></div>";
+
+            html += "<div class='card'><b>2. Test Bo Khien Khoang Lanh (Chan 15,16)</b><br>";
+            html += "Chieu day: <b>" + String(dispSwap ? "TX=16 / RX=15" : "TX=15 / RX=16") + "</b> | Baud: <b>" + String(dispBaud) + "</b><br>";
+            html += "Tin hieu bam phim nhan ve: <b>" + lastRxHex + "</b><br><br>";
+            html += "<a href='/uart?swap=1'><button>Dao Chieu TX/RX (15 &lt;-&gt; 16)</button></a><br>";
+            html += "<a href='/uart?b=1200'><button>1200</button></a>";
+            html += "<a href='/uart?b=2400'><button>2400</button></a>";
+            html += "<a href='/uart?b=4800'><button>4800</button></a>";
+            html += "<a href='/uart?b=9600'><button>9600</button></a><br>";
+            html += "<a href='/test?d=beep'><button>Gui Xung Test Bo Khien</button></a></div>";
+
+            html += "<div class='card'><b>3. Tai Da Chay Ok & Cam Bien:</b><br>";
+            html += "<a href='/test?d=fan'><button>Quat (20)</button></a>";
+            html += "<a href='/test?d=def'><button>Xa Da (21)</button></a>";
+            html += "<a href='/test?d=lr'><button>Den Mat (17)</button></a>";
+            html += "<a href='/test?d=lf'><button>Den Da (18)</button></a><br><br>";
+            html += "CB Da+Mat: " + (tCom < -90 ? String("Chua han") : String(tCom, 1) + "C") + " | ";
+            html += "Dan: " + (tDef < -90 ? String("Chua han") : String(tDef, 1) + "C") + " | ";
+            html += "MT: " + (tAmb < -90 ? String("Chua han") : String(tAmb, 1) + "C") + "</div>";
+            html += "</body></html>";
+            server.send(200, "text/html", html);
+          }
+
+          void setup() {
+            pinMode(PIN_FAN, OUTPUT); digitalWrite(PIN_FAN, 0);
+            pinMode(PIN_DEFROST, OUTPUT); digitalWrite(PIN_DEFROST, 0);
+            pinMode(PIN_LIGHT_R, OUTPUT); digitalWrite(PIN_LIGHT_R, 0);
+            pinMode(PIN_LIGHT_F, OUTPUT); digitalWrite(PIN_LIGHT_F, 0);
+            applyDamperMode(1);
+
+            pinMode(PIN_DOOR_F, INPUT_PULLUP);
+            pinMode(PIN_DOOR_R, INPUT_PULLUP);
+            pinMode(PIN_COMP_TX, OUTPUT); digitalWrite(PIN_COMP_TX, 0);
+            pinMode(PIN_COMP_RX, INPUT_PULLUP);
+
+            restartDisplayUart();
+            WiFi.softAP("Samsung_TuLanh_S3", "12345678");
+
+            for(int k = 0; k < 2; k++) {
+              digitalWrite(PIN_LIGHT_R, 1); delay(250);
+              digitalWrite(PIN_LIGHT_R, 0); delay(250);
+            }
+
+            server.on("/", handleRoot);
+            server.on("/dm", []() {
+              if (server.hasArg("m")) applyDamperMode(server.arg("m").toInt());
+              server.sendHeader("Location", "/");
+              server.send(303);
+            });
+            server.on("/uart", []() {
+              if (server.hasArg("swap")) dispSwap = !dispSwap;
+              if (server.hasArg("b")) dispBaud = server.arg("b").toInt();
+              restartDisplayUart();
+              server.sendHeader("Location", "/");
+              server.send(303);
+            });
+            server.on("/test", []() {
+              String d = server.arg("d");
+              if (d == "open") runDamper(true);
+              if (d == "close") runDamper(false);
+              if (d == "fan") digitalWrite(PIN_FAN, !digitalRead(PIN_FAN));
+              if (d == "def") digitalWrite(PIN_DEFROST, !digitalRead(PIN_DEFROST));
+              if (d == "lr") digitalWrite(PIN_LIGHT_R, !digitalRead(PIN_LIGHT_R));
+              if (d == "lf") digitalWrite(PIN_LIGHT_F, !digitalRead(PIN_LIGHT_F));
+              if (d == "beep") {
+                for (int i = 0; i < 3; i++) {
+                  Serial1.write((uint8_t)0xAA);
+                  Serial1.write((uint8_t)0x04);
+                  Serial1.write((uint8_t)0x01);
+                  Serial1.write((uint8_t)(0xAA ^ 0x04 ^ 0x01));
+                  delay(100);
+                }
+              }
+              server.sendHeader("Location", "/");
+              server.send(303);
+            });
+            server.begin();
+          }
+
