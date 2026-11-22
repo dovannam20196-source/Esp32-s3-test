@@ -64,22 +64,18 @@ jobs:
             Serial1.end();
             delay(50);
             uint32_t cfg = use8E1 ? SERIAL_8E1 : SERIAL_8N1;
-            // GPIO 16 = RX (qua cau phan ap), GPIO 15 = TX (qua ULN2803G dao cuc)
             Serial1.begin(dispBaud, cfg, 16, 15, false);
             Serial1.setTxInvert(invertTx);
           }
 
           void sendADT8700Packet() {
             if (scanMode == 1) {
-              // Khung danh thuc & hien thi 3C / -23C chuan Samsung RS62R (0xAA)
               uint8_t pkt[] = {0xAA, 0x09, 0x01, 0x03, 0x17, 0x00, 0x00, 0x00, 0xB8};
               Serial1.write(pkt, sizeof(pkt));
             } else if (scanMode == 2) {
-              // Khung test bat sang toan bo thanh LED 7 doan
               uint8_t pkt[] = {0xAA, 0x09, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xA0};
               Serial1.write(pkt, sizeof(pkt));
             } else if (scanMode == 3) {
-              // Khung giao tiep doi 0x55
               uint8_t pkt[] = {0x55, 0xAA, 0x08, 0x03, 0x17, 0x01, 0x00, 0x1E};
               Serial1.write(pkt, sizeof(pkt));
             }
@@ -165,8 +161,8 @@ jobs:
       - name: Publish Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.0-samsung-s3
-          name: Firmware Samsung S3 ADT8700A
+          tag_name: v2.0-run-${{ github.run_number }}
+          name: Firmware Samsung S3 ADT8700A #${{ github.run_number }}
           files: |
             .pio/build/esp32s3/bootloader.bin
             .pio/build/esp32s3/partitions.bin
