@@ -18,9 +18,10 @@ jobs:
           arduino-cli core install esp32:esp32@3.3.13 --additional-urls "file://$(pwd)/package_esp32_index.json"
       - name: Build
         run: |
-          arduino-cli compile --fqbn esp32:esp32:esp32s3:FlashSize=16M,PSRAM=opi --output-dir ./build .
+          SKETCH=$(find . -maxdepth 2 -name "*.ino" | head -n 1)
+          echo "Compiling: $SKETCH"
+          arduino-cli compile --fqbn esp32:esp32:esp32s3:FlashSize=16M,PSRAM=opi --output-dir ./build "$SKETCH"
       - uses: actions/upload-artifact@v5
         with:
           name: firmware-bin
-          path: ./build/*.bin
-          
+          path: ./build/*.
