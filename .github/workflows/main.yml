@@ -1,4 +1,4 @@
-name: Build Samsung S3 ADT8700A 12V
+name: Build Samsung S3 RX13 TX15
 
 on: [push, workflow_dispatch]
 
@@ -37,12 +37,17 @@ jobs:
           #define PIN_FAN      20
           #define PIN_DEFROST  21
 
+          // --- CHOT CHAN UART: RX = 13, TX = 15 (BO CHAN 16) ---
+          #define UART_RX_PIN  13
+          #define UART_TX_PIN  15
+
           WebServer server(80);
           long dispBaud = 9600;
           bool use8E1 = true;
-          bool invertTx = true; // Bat dao cuc TX vi di qua ULN2803G keo Mass 12V
+          bool invertTx = true;
+          bool invertRx = false;
           int scanMode = 1;
-          String lastRxHex = "Dang cho phan hoi 12V...";
+          String lastRxHex = "Dang cho tin hieu tai chan 13...";
 
           void stepWrite(int idx) {
             if (idx == 0) { digitalWrite(dmP0, 1); digitalWrite(dmP1, 1); digitalWrite(dmP2, 0); digitalWrite(dmP3, 0); }
@@ -64,7 +69,7 @@ jobs:
             Serial1.end();
             delay(50);
             uint32_t cfg = use8E1 ? SERIAL_8E1 : SERIAL_8N1;
-            Serial1.begin(dispBaud, cfg, 16, 15, false);
+            Serial1.begin(dispBaud, cfg, UART_RX_PIN, UART_TX_PIN, invertRx);
             Serial1.setTxInvert(invertTx);
           }
 
@@ -84,13 +89,15 @@ jobs:
           void handleRoot() {
             String html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>";
             html += "<style>body{font-family:sans-serif;background:#111;color:#eee;padding:12px;}.card{background:#222;padding:14px;border-radius:10px;margin-bottom:12px;}button{padding:11px 14px;font-size:14px;margin:4px;border-radius:8px;border:none;background:#0284c7;color:#fff;}.act{background:#16a34a;}.warn{background:#d97706;}</style></head><body>";
-            html += "<h3>KICH KHIEN ADT8700A (BUS 12V)</h3>";
-            html += "<div class='card'><b>1. Trang Thai Bus 12V (T8700A)</b><br>";
-            html += "Chuan: <b>" + String(use8E1 ? "8E1" : "8N1") + "</b> | Baud: <b>" + String(dispBaud) + "</b> | TX: <b>" + String(invertTx ? "Dao cuc (ULN2803)" : "Thuan") + "</b><br>";
-            html += "Tin hieu nhan ve: <b style='color:#4ade80;'>" + lastRxHex + "</b><br><br>";
+            html += "<h3>KICH KHIEN ADT8700A (RX=13, TX=15)</h3>";
+            html += "<div class='card'><b>1. Trang Thai Bus 12V (Bo Chan 16)</b><br>";
+            html += "Chuan: <b>" + String(use8E1 ? "8E1" : "8N1") + "</b> | Baud: <b>" + String(dispBaud) + "</b><br>";
+            html += "Cuc tinh: <b>TX(15)=" + String(invertTx ? "Dao" : "Thuan") + " | RX(13)=" + String(invertRx ? "Dao" : "Thuan") + "</b><br>";
+            html += "Tin hieu nhan ve (Chan 13): <b style='color:#4ade80;'>" + lastRxHex + "</b><br><br>";
             html += "<a href='/u?p=1'><button class='" + String(use8E1?"act":"") + "'>8E1</button></a>";
             html += "<a href='/u?p=0'><button class='" + String(!use8E1?"act":"") + "'>8N1</button></a>";
-            html += "<a href='/u?inv=1'><button class='warn'>Dao Cuc TX</button></a><br>";
+            html += "<a href='/u?itx=1'><button class='warn'>Dao TX (15)</button></a>";
+            html += "<a href='/u?irx=1'><button class='warn'>Dao RX (13)</button></a><br>";
             html += "<a href='/u?b=9600'><button class='" + String(dispBaud==9600?"act":"") + "'>9600</button></a>";
             html += "<a href='/u?b=4800'><button class='" + String(dispBaud==4800?"act":"") + "'>4800</button></a>";
             html += "<a href='/u?b=2400'><button class='" + String(dispBaud==2400?"act":"") + "'>2400</button></a><br><br>";
@@ -120,7 +127,8 @@ jobs:
             server.on("/", handleRoot);
             server.on("/u", []() {
               if (server.hasArg("p")) use8E1 = (server.arg("p").toInt() == 1);
-              if (server.hasArg("inv")) invertTx = !invertTx;
+              if (server.hasArg("itx")) invertTx = !invertTx;
+              if (server.hasArg("irx")) invertRx = !invertRx;
               if (server.hasArg("b")) dispBaud = server.arg("b").toInt();
               if (server.hasArg("m")) scanMode = server.arg("m").toInt();
               restartDisplayUart();
@@ -162,7 +170,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v2.0-run-${{ github.run_number }}
-          name: Firmware Samsung S3 ADT8700A #${{ github.run_number }}
+          name: Firmware Samsung S3 RX13 TX15 #${{ github.run_number }}
           files: |
             .pio/build/esp32s3/bootloader.bin
             .pio/build/esp32s3/partitions.bin
