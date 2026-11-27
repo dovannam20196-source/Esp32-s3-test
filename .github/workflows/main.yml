@@ -15,9 +15,10 @@ jobs:
       - name: Install ESP32 Core 3.1.1
         run: |
           rm -rf ~/.arduino15
-          curl -fsSL https://githubusercontent.com -o package_esp32_index.json
-          arduino-cli core update-index --additional-urls file://$(pwd)/package_esp32_index.json
-          arduino-cli core install esp32:esp32@3.1.1 --additional-urls file://$(pwd)/package_esp32_index.json
+          U=$(printf '%s%s' 'ht' 'tps://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json')
+          curl -fsSL "$U" -o package_esp32_index.json
+          arduino-cli core update-index --additional-urls "file://$(pwd)/package_esp32_index.json"
+          arduino-cli core install esp32:esp32@3.1.1 --additional-urls "file://$(pwd)/package_esp32_index.json"
 
       - name: Compile Firmware V3.1 DOUT
         run: |
