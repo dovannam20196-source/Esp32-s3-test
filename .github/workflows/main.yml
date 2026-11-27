@@ -1,36 +1,226 @@
-name: Build ESP32-38P DIO
+#include <WiFi.h>
+#include <WebServer.h>
+#include <Update.h>
+#include <math.h>
+#include "soc/soc.h"
+#include "soc/rtc_cntl_reg.h"
 
-on:
-  push:
-    branches: [ "main" ]
-  workflow_dispatch:
+// ================== CẤU HÌNH WI-FI PHÁT TEST ==================
+const char* AP_SSID = "TuLanh_Toshiba_Test";
+const char* AP_PASS = "88888888";
 
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: arduino/setup-arduino-cli@v2
+// ================== ĐỊNH NGHĨA CHÂN GPIO TRÊN ĐẾ DOMINO ==================
+#define PIN_CB_XADA      32  // 5k Toshiba
+#define PIN_CB_NGANMAT   33  // 10k B3950
+#define PIN_CB_NGANDA    34  // 2k Toshiba (luồn ống ti-ô)
+#define PIN_CB_MOITRUONG 35  // 2k Toshiba (bản lề nóc)
 
-      - name: Install ESP32 Core 2.0.17
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          rm -rf ~/.arduino15
-          gh release download 2.0.17 -R espressif/arduino-esp32 -p package_esp32_index.json
-          arduino-cli core update-index --additional-urls file://$(pwd)/package_esp32_index.json
-          arduino-cli core install esp32:esp32@2.0.17 --additional-urls file://$(pwd)/package_esp32_index.json
+#define PIN_RL_XADA      16  // IN1 -> NO1: Xả đá
+#define PIN_RL_BLOCK_PWR 17  // IN2 -> NO2: Nguồn bo CS lốc
+#define PIN_RL_DEN       22  // IN4 -> NO4: Đèn LED khoang tủ 12V
 
-      - name: Compile Firmware DIO
-        run: |
-          CODE_FILE=$(find . -not -path '*/.*' \( -name "*.ino" -o -name "*.cpp" \) | head -n 1)
-          mkdir -p /tmp/sketch
-          cp "$CODE_FILE" /tmp/sketch/sketch.ino
-          arduino-cli compile --fqbn esp32:esp32:esp32 --board-options FlashMode=dio --output-dir ./build /tmp/sketch
+#define PIN_PWM_BLOCK    25  // PWM điều tốc lốc (Kênh PWM 0)
+#define PIN_PWM_QUAT     21  // Dây Tím: PWM điều tốc quạt (Kênh PWM 1)
+#define PIN_HALL_QUAT    26  // Dây Vàng: Đọc xung Hall quạt
+#define PIN_CONGTAC_CUA  27  // Công tắc cửa
 
-      - name: Upload Artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: Toshiba-ESP32-DIO
-          path: ./build/*.bin
-          
+#define PIN_NUT_SW1      18  // Dây Đỏ: Nút nhấn chọn mức nhiệt
+#define PIN_LED4         19  // Dây Xanh dương: LED4
+#define PIN_LED3         23  // Dây Tím: LED3
+#define PIN_LED2         14  // Dây Vàng: LED2
+#define PIN_LED1         13  // Dây Hồng: LED1
+
+const float R_PULLUP = 3600.0;
+const int PWM_FREQ_BLOCK = 1000;
+const int PWM_FREQ_FAN   = 25000;
+const int PWM_RES        = 8;
+
+float tXaDa = 0, tNganMat = 0, tNganDa = 0, tMoiTruong = 0;
+int mucNhiet = 1;
+int testFanPct = 0;
+int testBlockPct = 0;
+bool testXaDa = false;
+bool cuaMo = false;
+
+volatile unsigned long xungHall = 0;
+int fanRPM = 0;
+unsigned long lastHallCalc = 0;
+
+WebServer server(80);
+
+void IRAM_ATTR ngatHall() {
+  xungHall++;
+}
+
+float docNhietDo(int pin, float r25, float beta) {
+  long tongADC = 0;
+  for (int i = 0; i < 20; i++) {
+    tongADC += analogRead(pin);
+    delayMicroseconds(200);
+  }
+  float adc = tongADC / 20.0;
+  if (adc < 50 || adc > 4040) return -99.9;
+  float rNTC = R_PULLUP * (adc / (4095.0 - adc));
+  float steinhart = log(rNTC / r25) / beta + 1.0 / (25.0 + 273.15);
+  return (1.0 / steinhart) - 273.15;
+}
+
+void capNhatLedBoPhim() {
+  digitalWrite(PIN_LED1, mucNhiet == 1 ? HIGH : LOW);
+  digitalWrite(PIN_LED2, mucNhiet == 2 ? HIGH : LOW);
+  digitalWrite(PIN_LED3, mucNhiet == 3 ? HIGH : LOW);
+  digitalWrite(PIN_LED4, mucNhiet == 4 ? HIGH : LOW);
+}
+
+const char INDEX_HTML[] PROGMEM = R"rawliteral(
+<!DOCTYPE html><html lang="vi"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Test Tủ Toshiba ESP32</title>
+<style>
+  body{font-family:sans-serif;background:#0f172a;color:#fff;margin:0;padding:15px}
+  .card{background:#1e293b;padding:15px;border-radius:12px;margin-bottom:12px}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .box{background:#334155;padding:10px;border-radius:8px;text-align:center}
+  .val{font-size:22px;font-weight:bold;color:#38bdf8;margin-top:4px}
+  button{width:100%;padding:12px;border:none;border-radius:8px;font-size:15px;font-weight:bold;color:#fff;background:#0284c7;margin-top:8px}
+  .btn-on{background:#16a34a} .btn-off{background:#dc2626}
+</style></head><body>
+  <h3 style="text-align:center;margin:0 0 12px 0;">🛠️ TEST PHẦN CỨNG TỦ TOSHIBA</h3>
+  <div class="card grid">
+    <div class="box">🧊 CB Xả Đá (5k)<div class="val" id="t1">--</div></div>
+    <div class="box">🥬 CB Ngăn Mát (10k)<div class="val" id="t2">--</div></div>
+    <div class="box">❄️ CB Ngăn Đá (2k)<div class="val" id="t3">--</div></div>
+    <div class="box">🌡️ CB Bản Lề (2k)<div class="val" id="t4">--</div></div>
+  </div>
+  <div class="card">
+    <div>🚪 Công tắc cửa: <b id="cua">--</b> | 💡 Mức LED phím: <b id="muc">--</b></div>
+    <div style="margin-top:6px;">🌀 Tua Quạt Hall: <b id="rpm" style="color:#4ade80;">0 RPM</b></div>
+  </div>
+  <div class="card">
+    <b>Bấm Test Tải & PWM:</b>
+    <div class="grid">
+      <button onclick="cmd('fan',0)">Tắt Quạt</button>
+      <button class="btn-on" onclick="cmd('fan',100)">Chạy Quạt 100%</button>
+      <button onclick="cmd('block',0)">Tắt Lốc (IN2)</button>
+      <button class="btn-on" onclick="cmd('block',80)">Chạy Lốc 80%</button>
+      <button onclick="cmd('xada',0)">Tắt Xả Đá</button>
+      <button class="btn-off" onclick="cmd('xada',1)">Đóng Xả Đá (IN1)</button>
+    </div>
+    <button onclick="cmd('led',1)">Nhảy Mức LED Bo Phím</button>
+  </div>
+<script>
+  function cmd(k,v){ fetch('/cmd?'+k+'='+v).then(()=>load()); }
+  function load(){
+    fetch('/data').then(r=>r.json()).then(d=>{
+      document.getElementById('t1').innerText = d.t1 + '°C';
+      document.getElementById('t2').innerText = d.t2 + '°C';
+      document.getElementById('t3').innerText = d.t3 + '°C';
+      document.getElementById('t4').innerText = d.t4 + '°C';
+      document.getElementById('cua').innerText = d.cua ? 'ĐANG MỞ (Đèn Sáng)' : 'ĐANG ĐÓNG';
+      document.getElementById('muc').innerText = 'Mức ' + d.muc;
+      document.getElementById('rpm').innerText = d.rpm + ' RPM';
+    });
+  }
+  setInterval(load, 1000); load();
+</script></body></html>
+)rawliteral";
+
+void setup() {
+  WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0); // Tắt tự reset khi sụt áp tức thời lúc bật Wi-Fi
+  Serial.begin(115200);
+  delay(500);
+  Serial.println("\n=== DANG KHOI DONG TU LANH TOSHIBA ===");
+
+  pinMode(PIN_RL_XADA, OUTPUT);      digitalWrite(PIN_RL_XADA, HIGH);
+  pinMode(PIN_RL_BLOCK_PWR, OUTPUT); digitalWrite(PIN_RL_BLOCK_PWR, HIGH);
+  pinMode(PIN_RL_DEN, OUTPUT);       digitalWrite(PIN_RL_DEN, HIGH);
+
+  pinMode(PIN_NUT_SW1, INPUT_PULLUP);
+  pinMode(PIN_CONGTAC_CUA, INPUT_PULLUP);
+  pinMode(PIN_LED1, OUTPUT); pinMode(PIN_LED2, OUTPUT);
+  pinMode(PIN_LED3, OUTPUT); pinMode(PIN_LED4, OUTPUT);
+  capNhatLedBoPhim();
+
+  ledcSetup(0, PWM_FREQ_BLOCK, PWM_RES);
+  ledcAttachPin(PIN_PWM_BLOCK, 0);
+  ledcSetup(1, PWM_FREQ_FAN, PWM_RES);
+  ledcAttachPin(PIN_PWM_QUAT, 1);
+
+  pinMode(PIN_HALL_QUAT, INPUT_PULLUP);
+  attachInterrupt(digitalPinToInterrupt(PIN_HALL_QUAT), ngatHall, FALLING);
+
+  WiFi.mode(WIFI_AP);
+  delay(200);
+  WiFi.softAP(AP_SSID, AP_PASS);
+  WiFi.setTxPower(WIFI_POWER_15dBm); // Giảm dòng đỉnh Wi-Fi giúp chạy cực êm
+  Serial.print("Wi-Fi da phat: ");
+  Serial.println(AP_SSID);
+
+  server.on("/", []() { server.send_P(200, "text/html", INDEX_HTML); });
+  server.on("/data", []() {
+    String json = "{\"t1\":" + String(tXaDa,1) + ",\"t2\":" + String(tNganMat,1) +
+                  ",\"t3\":" + String(tNganDa,1) + ",\"t4\":" + String(tMoiTruong,1) +
+                  ",\"cua\":" + String(cuaMo ? 1 : 0) + ",\"muc\":" + String(mucNhiet) +
+                  ",\"rpm\":" + String(fanRPM) + "}";
+    server.send(200, "application/json", json);
+  });
+  server.on("/cmd", []() {
+    if (server.hasArg("fan")) {
+      testFanPct = server.arg("fan").toInt();
+      ledcWrite(1, map(testFanPct, 0, 100, 0, 255));
+    }
+    if (server.hasArg("block")) {
+      testBlockPct = server.arg("block").toInt();
+      digitalWrite(PIN_RL_BLOCK_PWR, testBlockPct > 0 ? LOW : HIGH);
+      ledcWrite(0, map(testBlockPct, 0, 100, 0, 255));
+    }
+    if (server.hasArg("xada")) {
+      testXaDa = (server.arg("xada").toInt() == 1);
+      digitalWrite(PIN_RL_XADA, testXaDa ? LOW : HIGH);
+    }
+    if (server.hasArg("led")) {
+      mucNhiet = (mucNhiet % 4) + 1;
+      capNhatLedBoPhim();
+    }
+    server.send(200, "text/plain", "OK");
+  });
+
+  server.on("/update", HTTP_GET, []() {
+    server.send(200, "text/html", "<form method='POST' action='/update' enctype='multipart/form-data'><input type='file' name='update'><input type='submit' value='Nap Ban Chinh Thuc'></form>");
+  });
+  server.on("/update", HTTP_POST, []() {
+    server.send(200, "text/plain", (Update.hasError()) ? "LOI" : "THANH CONG! DANG KHOI DONG LAI...");
+    ESP.restart();
+  }, []() {
+    HTTPUpload& upload = server.upload();
+    if (upload.status == UPLOAD_FILE_START) Update.begin(UPDATE_SIZE_UNKNOWN);
+    else if (upload.status == UPLOAD_FILE_WRITE) Update.write(upload.buf, upload.currentSize);
+    else if (upload.status == UPLOAD_FILE_END) Update.end(true);
+  });
+
+  server.begin();
+}
+
+void loop() {
+  server.handleClient();
+
+  tXaDa      = docNhietDo(PIN_CB_XADA, 5000.0, 3950.0);
+  tNganMat   = docNhietDo(PIN_CB_NGANMAT, 10000.0, 3950.0);
+  tNganDa    = docNhietDo(PIN_CB_NGANDA, 2000.0, 3950.0);
+  tMoiTruong = docNhietDo(PIN_CB_MOITRUONG, 2000.0, 3950.0);
+
+  static unsigned long lastBtn = 0;
+  if (digitalRead(PIN_NUT_SW1) == LOW && (millis() - lastBtn > 300)) {
+    lastBtn = millis();
+    mucNhiet = (mucNhiet % 4) + 1;
+    capNhatLedBoPhim();
+  }
+
+  cuaMo = (digitalRead(PIN_CONGTAC_CUA) == HIGH);
+  digitalWrite(PIN_RL_DEN, cuaMo ? LOW : HIGH);
+
+  if (millis() - lastHallCalc >= 1000) {
+    fanRPM = (xungHall * 60) / 2;
+    xungHall = 0;
+    lastHallCalc = millis();
+  }
+}
