@@ -1,4 +1,4 @@
-name: Build ESP32-38P DIO
+name: Build ESP32-38P DOUT
 
 on:
   push:
@@ -21,16 +21,16 @@ jobs:
           arduino-cli core update-index --additional-urls file://$(pwd)/package_esp32_index.json
           arduino-cli core install esp32:esp32@2.0.17 --additional-urls file://$(pwd)/package_esp32_index.json
 
-      - name: Compile Firmware DIO
+      - name: Compile Firmware DOUT 40MHz
         run: |
           CODE_FILE=$(find . -not -path '*/.*' \( -name "*.ino" -o -name "*.cpp" \) | head -n 1)
           mkdir -p /tmp/sketch
           cp "$CODE_FILE" /tmp/sketch/sketch.ino
-          arduino-cli compile --fqbn esp32:esp32:esp32 --board-options FlashMode=dio --output-dir ./build /tmp/sketch
+          arduino-cli compile --fqbn esp32:esp32:esp32 --board-options FlashMode=dout,FlashFreq=40 --output-dir ./build /tmp/sketch
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: Toshiba-ESP32-DIO
+          name: Toshiba-ESP32-DOUT
           path: ./build/*.bin
           
