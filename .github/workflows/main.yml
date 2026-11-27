@@ -9,27 +9,26 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: arduino/setup-arduino-cli@v2
 
       - name: Install ESP32 Core 3.1.1
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           rm -rf ~/.arduino15
-          gh release download 3.1.1 -R espressif/arduino-esp32 -p package_esp32_index.json
+          curl -fsSL https://githubusercontent.com -o package_esp32_index.json
           arduino-cli core update-index --additional-urls file://$(pwd)/package_esp32_index.json
           arduino-cli core install esp32:esp32@3.1.1 --additional-urls file://$(pwd)/package_esp32_index.json
 
       - name: Compile Firmware V3.1 DOUT
         run: |
           CODE_FILE=$(find . -not -path '*/.*' \( -name "*.ino" -o -name "*.cpp" \) | head -n 1)
+          if [ -z "$CODE_FILE" ]; then echo "Khong tim thay file code!"; exit 1; fi
           mkdir -p /tmp/sketch
           cp "$CODE_FILE" /tmp/sketch/sketch.ino
-          arduino-cli compile --fqbn esp32:esp32:esp32 --board-options FlashMode=dout,FlashFreq=40 --output-dir ./build /tmp/sketch
+          arduino-cli compile --fqbn esp32:esp32:esp32 --board-options FlashMode=DOUT,FlashFreq=40 --output-dir ./build /tmp/sketch
 
       - name: Upload Artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: Toshiba-ESP32-V31-DOUT
           path: ./build/*.bin
